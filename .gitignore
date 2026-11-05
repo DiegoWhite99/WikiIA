@@ -4,3 +4,4 @@ wikiia.db-*
 __pycache__/
 *.pyc
 .wikiia.lock
+CLAUDE.md

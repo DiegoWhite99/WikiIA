@@ -41,6 +41,22 @@ jobs:
       - name: Instalar lo que usa la actualización
         run: pip install --quiet requests python-dotenv
 
+      - name: Comprobar la clave de Groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, requests
+          clave = os.environ.get("GROQ_API_KEY", "").strip()
+          if not clave:
+              print("⚠️ Falta el Secret GROQ_API_KEY: se actualiza el catálogo, pero no se investigan fichas.")
+          else:  # listar modelos no gasta tokens
+              r = requests.get("https://api.groq.com/openai/v1/models", timeout=20,
+                               headers={"Authorization": f"Bearer {clave}"})
+              print("✅ Groq conectado: se investigan fichas." if r.ok else
+                    f"⚠️ Groq no aceptó la clave (código {r.status_code}): revisa el Secret GROQ_API_KEY.")
+          EOF
+
       - name: Buscar modelos nuevos, investigar fichas y revisar enlaces
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

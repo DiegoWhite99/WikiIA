@@ -29,10 +29,10 @@ jobs:
       url: ${{ steps.despliegue.outputs.page_url }}
     steps:
       - name: Descargar el repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Instalar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -40,13 +40,19 @@ jobs:
         run: python -m wikiia.calendario --carpeta _site
 
       - name: Preparar GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Subir los archivos
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
       - name: Publicar
         id: despliegue
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+
+      - name: Mostrar el enlace en el resumen
+        run: |
+          echo "### 📅 Calendario publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Página: ${{ steps.despliegue.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Suscripción: ${{ steps.despliegue.outputs.page_url }}wikiia.ics" >> "$GITHUB_STEP_SUMMARY"

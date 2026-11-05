@@ -499,9 +499,9 @@ def html_tour() -> str:
 
 
 # ───────────────────────────── avisos ─────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def calendario_publicado(url: str) -> bool:
-    """El botón solo aparece cuando el workflow ya publicó el .ics en GitHub Pages."""
+    """El botón solo aparece cuando el workflow ya publicó el .ics en GitHub Pages (se revisa cada 10 min)."""
     try:
         return requests.head(url, timeout=5, allow_redirects=True).ok
     except requests.RequestException:

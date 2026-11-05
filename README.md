@@ -66,6 +66,7 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
 |---|---|---|
 | La app (solo lectura) | Streamlit Community Cloud | Sola, con cada `git push` |
 | Calendario de lanzamientos (`wikiia.ics`) | GitHub Pages | Workflow `.github/workflows/calendario.yml` en cada `git push` que cambie la base o el código |
+| Los datos (`wikiia.db`) | GitHub Actions, cada 6 h | Workflow `.github/workflows/actualizar.yml`: busca modelos nuevos, investiga fichas con Groq (Secret `GROQ_API_KEY` del repositorio), revisa enlaces, sube la base y republica el calendario. No necesita tu PC encendido |
 
 - **Modo público**: en Streamlit Cloud la app se pone sola en solo lectura (sin Configuración, investigar ni
   editar; ahí no hay Ollama ni `.env`). Los datos se investigan en tu PC y se suben con `git push`.
@@ -98,6 +99,9 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
 
 Para que el workflow pueda publicar (una sola vez): en GitHub, **Settings → Pages → Build and deployment →
 Source: GitHub Actions**.
+
+La actualización automática corre en GitHub Actions; el temporizador del PC (`scripts/instalar_temporizador.sh`)
+quedó apagado para no tener dos copias de la base. Antes de trabajar en tu PC, trae la base nueva con `git pull`.
 
 ### Base de datos de las cuentas (PostgreSQL)
 

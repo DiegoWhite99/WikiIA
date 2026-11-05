@@ -1,5 +1,6 @@
 # Publica en GitHub Pages el calendario de lanzamientos (wikiia.ics) y su página.
-# Corre solo cada vez que haces git push con la base o el código cambiados, o a mano desde la pestaña Actions.
+# Corre con cada git push que cambie la base o el código, después de cada «Actualizar datos» (cada 6 h)
+# o a mano desde la pestaña Actions.
 # Requisito (una sola vez): Settings → Pages → Build and deployment → Source: "GitHub Actions".
 # OJO: si Source queda en "Deploy from a branch", GitHub publica el repo tal cual DESPUÉS de este workflow
 # y el calendario desaparece (wikiia.ics da 404).
@@ -17,6 +18,7 @@ on:
       - "wikiia/config.py"
       - ".github/workflows/calendario.yml"
   workflow_dispatch:
+  workflow_call:   # lo llama «Actualizar datos» después de guardar la base nueva
 
 permissions:
   contents: read
@@ -36,6 +38,8 @@ jobs:
     steps:
       - name: Descargar el repo
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}   # lo último de main (incluye la base recién subida por «Actualizar datos»)
 
       - name: Instalar Python
         uses: actions/setup-python@v7

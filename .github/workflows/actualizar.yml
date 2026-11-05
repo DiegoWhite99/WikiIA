@@ -1,0 +1,84 @@
+# Actualiza los datos de WikiIA en la nube de GitHub cada 6 horas, sin necesitar el PC encendido:
+# busca modelos nuevos (OpenRouter + Hugging Face), investiga fichas con Groq, revisa enlaces, guarda
+# wikiia.db en el repositorio (Streamlit Cloud la toma sola) y vuelve a publicar el calendario.
+#
+# Requisito: Settings → Secrets and variables → Actions → New repository secret
+#   GROQ_API_KEY = tu clave de Groq (sin ella se actualiza el catálogo, pero no se investigan fichas).
+#   Opcional: TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID para recibir los avisos de modelos nuevos.
+# Para correrlo a mano: pestaña Actions → «Actualizar datos» → Run workflow.
+name: Actualizar datos
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # 00:17, 06:17, 12:17 y 18:17 UTC (19:17, 01:17, 07:17 y 13:17 en Colombia)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/actualizar.yml"]   # al cambiar este archivo corre una vez para probarlo
+
+permissions:
+  contents: write     # subir wikiia.db
+  pages: write        # publicar el calendario
+  id-token: write
+
+concurrency:
+  group: actualizar-datos
+  cancel-in-progress: false
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Descargar el repo
+        uses: actions/checkout@v7
+
+      - name: Instalar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Instalar lo que usa la actualización
+        run: pip install --quiet requests python-dotenv
+
+      - name: Buscar modelos nuevos, investigar fichas y revisar enlaces
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVEEDOR: groq            # en la nube no hay Ollama
+          INVESTIGAR_POR_EJECUCION: "20" # deja cupo gratis de Groq para la guía
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m wikiia actualizar
+
+      - name: Guardar la base en el repositorio
+        run: |
+          python -c "import sqlite3; c = sqlite3.connect('wikiia.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+          git config user.name "wikiia-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wikiia.db
+          if git diff --cached --quiet; then
+            echo "La base no cambió."
+            exit 0
+          fi
+          git commit -m "Datos: actualización automática $(date -u '+%Y-%m-%d %H:%M') UTC"
+          git pull --rebase origin main   # por si mientras tanto se subió código
+          git push origin HEAD:main
+
+      - name: Resumen
+        if: always()
+        run: |
+          python - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, sqlite3
+          c = sqlite3.connect("wikiia.db"); c.row_factory = sqlite3.Row
+          f = c.execute("SELECT * FROM ejecuciones ORDER BY id DESC LIMIT 1").fetchone()
+          print("### 🌐 WikiIA: actualización automática")
+          if f:
+              print(f"- {f['resumen']}")
+              for e in json.loads(f["errores"] or "[]")[:10]:
+                  print(f"- ⚠️ {e[:200]}")
+          EOF
+
+  # Los push hechos por el propio workflow no disparan otros workflows: el calendario se llama aquí.
+  calendario:
+    needs: actualizar
+    uses: ./.github/workflows/calendario.yml

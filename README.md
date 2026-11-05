@@ -1,139 +1,215 @@
 # 🌐 WikiIA
 
-La enciclopedia **local** de los modelos de inteligencia artificial del mundo: Estados Unidos, China,
-Rusia, Alemania, Francia, Corea, Japón y más. Se actualiza sola, investiga cada modelo con IA
-(Groq + Ollama) y te avisa en el escritorio (y en Telegram, si quieres) cada vez que sale uno nuevo.
+**La enciclopedia de los modelos de inteligencia artificial del mundo.** Reúne en un solo lugar los modelos
+de Estados Unidos, China, Francia, Corea, Rusia, Canadá, Japón y más: qué hace cada uno, cuánto cuesta, si se
+puede descargar y correr en tu propio computador, qué tan potente es y qué conviene saber sobre la privacidad
+según el país de la empresa. Se actualiza sola en la nube cada 6 horas.
 
-## Uso rápido
+| | |
+|---|---|
+| 🚀 **App** | https://wikiia-bl3pec2wdfzvcxdg9jq5aw.streamlit.app/ (hay que crear una cuenta gratis) |
+| 📅 **Calendario de lanzamientos** | https://diegowhite99.github.io/WikiIA/ |
+| 🏷️ **Versión estable** | [`v2.0.0`](https://github.com/DiegoWhite99/WikiIA/tree/v2.0.0) · historial en [CHANGELOG.md](CHANGELOG.md) |
 
-```bash
-./iniciar.sh                          # abre la app en http://localhost:8501
-./scripts/instalar_temporizador.sh    # activa la revisión automática cada 6 horas
-```
+Al 5 de noviembre de 2026: **983 modelos** de **85 empresas** en **14 países**.
 
-## Qué muestra cada ficha
+---
+
+## Qué puede hacer
+
+- **Explorar el catálogo** por país, ranking de potencia, empresa, novedades y estadísticas con gráficos.
+- **Filtrar** por texto, país, empresa, para qué sirve (💻 código · 🔬 investigación · 💬 chat · 👁️ visión ·
+  🎨 imágenes · 🎬 video · 🎙️ voz · 🦾 agentes), cómo se usa (nube, local o ambos), costo, potencia y fecha.
+- **Ver la ficha completa de cada modelo**: el nombre es el enlace a su página oficial y la casilla de la fila
+  abre la ficha (ver la tabla de abajo).
+- **Iniciar sesión**: toda la app pide cuenta (nombre, correo y contraseña escrita dos veces). La sesión se
+  recuerda 30 días y cada quien puede cambiar su contraseña o borrar su cuenta.
+- **Guía con IA** (burbuja verde **W**): te pregunta qué quieres lograr, si lo quieres en la nube o en tu
+  computador y con qué equipo cuentas, y te recomienda un modelo del catálogo con los pasos para empezar.
+  Usa tu propia clave gratis de Groq, que queda guardada cifrada en tu cuenta.
+- **Suscribirse al calendario** de lanzamientos (Google Calendar, Apple, Outlook): cada modelo nuevo aparece
+  como un evento.
+- **Administración** (solo cuentas root): usuarios registrados, quién guardó clave de Groq, sesiones abiertas
+  y borrar cuentas.
+- **Tour guiado** la primera vez que alguien entra: ilumina cada parte de la pantalla y explica para qué sirve.
+
+### Qué muestra cada ficha
 
 | Sección | Contenido |
 |---|---|
-| Identidad | Empresa, país, fecha de publicación, si sigue activo en la API |
-| Cómo se usa | ☁️ Solo API · 🖥️ Local (pesos abiertos) · ambos |
+| Identidad | Empresa, país, fecha de publicación, si sigue activo |
+| Cómo se usa | ☁️ Nube (API) · 🖥️ Local (pesos abiertos) · ambos |
 | Precio | USD por millón de tokens (entrada / salida), gratis o local |
-| Sirve para | 💻 Código · 🔬 Investigación · 💬 Chat · 👁️ Visión · 🎨 Imágenes · 🎬 Video · 🎙️ Voz · 🦾 Agentes |
-| Potencia | ★1 a ★5, con la razón y quién la decidió (heurística, IA o tú) |
-| Técnico | Tamaño, contexto, licencia, memoria necesaria y **si corre en tu PC** |
+| Sirve para | Capacidades: código, investigación, chat, visión, imágenes, video, voz, agentes |
+| Potencia | ★1 a ★5, con la razón y quién la decidió (reglas automáticas o IA) |
+| Técnico | Tamaño, contexto, licencia y memoria necesaria |
 | ⚠️ Importante | Privacidad y leyes del país, licencia comercial, versiones preview, consejos |
-| 📥 Descargar y ejecutar | (modelos locales) comando listo para copiar en cada motor: Ollama, LM Studio, llama.cpp, Jan, vLLM, SGLang, Transformers, MLX (Mac); para imagen/video: ComfyUI, ComfyUI ligero (GGUF), Diffusers |
-| 🖥️ Requisitos mínimos | (modelos locales) disco, memoria, GPU recomendada, si se puede solo con CPU y Mac, para 4 bits, 8 bits y original |
-| 🌐 Dónde usarlo | (modelos en la nube) chat oficial, web, API/documentación, precios y proveedores |
+| 📥 Descargar y ejecutar | (modelos locales) Comando listo para copiar en cada motor: Ollama, LM Studio, llama.cpp, Jan, vLLM, SGLang, Transformers, MLX (Mac); para imagen/video: ComfyUI y Diffusers |
+| 🖥️ Requisitos mínimos | (modelos locales) Disco, memoria y GPU para 4 bits, 8 bits y original |
+| 🌐 Dónde usarlo | Chat oficial, web, API y documentación, precios y proveedores |
 
-Las versiones GGUF y MLX se buscan en Hugging Face por la relación oficial `base_model:quantized`,
-así que corresponden exactamente al modelo (se descartan versiones modificadas como "abliterated").
+Los enlaces se revisan solos: si uno deja de abrir, la app y el calendario usan el siguiente disponible.
 
-Se puede ordenar por **país**, **empresa**, **potencia**, **fecha** y **precio**, y filtrar por capacidades.
+---
 
 ## Cómo funciona
 
-```
-OpenRouter API ──┐  (modelos por API, precios, modalidades)
-                 ├─► reglas automáticas ─► SQLite ─► Groq / Ollama investigan ─► alertas
-Hugging Face API ┘  (modelos abiertos de ~60 organizaciones oficiales)          (escritorio, Telegram)
-data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Kling, Midjourney…)
+```mermaid
+flowchart LR
+    A["GitHub Actions<br/>cada 6 horas"] -->|"OpenRouter + Hugging Face<br/>fichas con Groq"| B[("wikiia.db<br/>catálogo en el repo")]
+    B --> C["Streamlit Cloud<br/>app web"]
+    B --> D["GitHub Pages<br/>calendario .ics"]
+    C <-->|"cuentas y claves cifradas"| E[("Neon<br/>PostgreSQL")]
+    C <-->|"guía con IA"| F["Groq"]
 ```
 
-1. **Detección**: compara el catálogo de OpenRouter y las organizaciones oficiales de Hugging Face
-   contra la base. Filtra el ruido (copias GGUF/FP8, LoRA, paquetes para un hardware, experimentos).
-2. **Reglas automáticas**: deducen capacidades, acceso, precio y una potencia inicial sin IA.
-3. **Investigación con IA**: Groq (`openai/gpt-oss-120b`) lee la documentación oficial y redacta la
-   ficha en español. Si Groq llega a su límite gratis, sigue Ollama (`qwen2.5:3b`) en tu PC.
-4. **Alertas**: cada modelo nuevo genera una notificación. La **primera carga no alerta**
-   (es la línea base); tampoco una organización recién agregada al catálogo.
+| Pieza | Dónde corre | Qué hace |
+|---|---|---|
+| Actualización de datos | **GitHub Actions** (`.github/workflows/actualizar.yml`) | Cada 6 h: 01:17, 07:17, 13:17 y 19:17 (hora de Colombia) |
+| Catálogo | `wikiia.db` (SQLite) dentro del repositorio | El robot `wikiia-bot` la sube después de cada actualización |
+| App web | **Streamlit Community Cloud** | Toma sola cada cambio del repositorio |
+| Cuentas | **Neon** (PostgreSQL gratis) | Usuarios, sesiones y claves de Groq cifradas |
+| Calendario | **GitHub Pages** (`.github/workflows/calendario.yml`) | Se vuelve a publicar después de cada actualización |
 
-## Comandos
+No hace falta ningún computador encendido: todo corre en la nube.
+
+### En cada actualización
+
+1. **Detecta modelos nuevos** en la API de OpenRouter (modelos en la nube, con precios) y en las
+   organizaciones oficiales de Hugging Face (modelos abiertos). Descarta el ruido: copias, versiones
+   cuantizadas, LoRA y experimentos. `data/manuales.json` agrega servicios sin API pública (Sora, Veo, Kling,
+   Midjourney…).
+2. **Reglas automáticas** deducen capacidades, acceso, precio y una potencia inicial.
+3. **Investigación con IA**: Groq (`openai/gpt-oss-120b`) lee la documentación oficial y redacta 20 fichas en
+   español por vuelta.
+4. **Revisa los enlaces** nuevos o con más de 14 días.
+5. **Guarda la base** en el repositorio y republica el calendario.
+
+---
+
+## Seguridad y datos personales
+
+- **Contraseñas**: nunca se guardan; solo su huella **scrypt** con sal, que no se puede revertir.
+  5 intentos fallidos seguidos pausan la cuenta 15 minutos.
+- **Claves de Groq**: se guardan **cifradas** (Fernet) con un secreto que no está en la base ni en el código.
+  Ni los administradores pueden verlas.
+- **Sesiones**: la cookie lleva un código al azar; en la base solo queda su huella SHA-256.
+- **Root**: los administradores se definen por la huella SHA-256 de su correo (`ROOTS_SHA256` en
+  `wikiia/cuentas.py`) o por el Secret `WIKIIA_ROOTS`. Los correos no aparecen en el código público, y nadie
+  puede volverse administrador modificando la base.
+- **Errores**: la app nunca muestra errores técnicos ni de los proveedores; siempre dice qué hacer (esperar
+  un momento, verificar la clave…).
+
+**Tablas en PostgreSQL**
+
+| Tabla | Llave | Contenido |
+|---|---|---|
+| `wikiia_usuarios` | `correo` (primaria) | Nombre, huella de la contraseña, clave de Groq cifrada, intentos fallidos, fechas |
+| `wikiia_sesiones` | `token_hash` (primaria), `correo` (foránea → usuarios) | Sesiones abiertas y su vencimiento |
+
+---
+
+## Correr en tu computador
+
+Requisitos: Python 3.10 o más reciente.
 
 ```bash
-.venv/bin/python -m wikiia actualizar            # buscar nuevos + investigar + alertar
-.venv/bin/python -m wikiia actualizar --sin-alertas
-.venv/bin/python -m wikiia investigar --cantidad 50
-.venv/bin/python -m wikiia investigar --modelo deepseek/deepseek-v4.1-flash
-.venv/bin/python -m wikiia probar-llm             # comprueba Groq y Ollama
-.venv/bin/python -m wikiia probar-alerta
-.venv/bin/python -m wikiia estado
+git clone https://github.com/DiegoWhite99/WikiIA.git
+cd WikiIA
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env          # opcional: clave de Groq, Ollama, Telegram…
+./iniciar.sh                  # abre http://localhost:8501
 ```
 
-## En internet
+- Sin `DATABASE_URL` ni `WIKIIA_SECRETO` en el `.env` **no se pide iniciar sesión** y aparece la pestaña
+  ⚙️ Configuración para actualizar, investigar y corregir fichas a mano.
+- `WIKIIA_PUBLICO=1` muestra la app tal como se ve en internet (solo lectura).
+- Antes de trabajar, trae los datos nuevos que subió el robot con `git pull`.
 
-| Qué | Dónde | Cómo se actualiza |
+### Comandos
+
+```bash
+.venv/bin/python -m wikiia actualizar              # buscar nuevos + investigar + revisar enlaces + alertar
+.venv/bin/python -m wikiia investigar --cantidad 50
+.venv/bin/python -m wikiia investigar --modelo deepseek/deepseek-v4.1-flash
+.venv/bin/python -m wikiia enlaces [--todos]       # revisar que abran los enlaces
+.venv/bin/python -m wikiia probar-llm              # comprobar Groq y Ollama
+.venv/bin/python -m wikiia estado                  # resumen de la base
+.venv/bin/python -m wikiia.calendario --carpeta _site
+```
+
+---
+
+## Configuración
+
+| Variable | Dónde | Para qué |
 |---|---|---|
-| La app (solo lectura) | Streamlit Community Cloud | Sola, con cada `git push` |
-| Calendario de lanzamientos (`wikiia.ics`) | GitHub Pages | Workflow `.github/workflows/calendario.yml` en cada `git push` que cambie la base o el código |
-| Los datos (`wikiia.db`) | GitHub Actions, cada 6 h | Workflow `.github/workflows/actualizar.yml`: busca modelos nuevos, investiga fichas con Groq (Secret `GROQ_API_KEY` del repositorio), revisa enlaces, sube la base y republica el calendario. No necesita tu PC encendido |
+| `DATABASE_URL` | Secrets de Streamlit Cloud | PostgreSQL de las cuentas (Neon) |
+| `WIKIIA_SECRETO` | Secrets de Streamlit Cloud | Cifra las claves de Groq. No cambiarlo después |
+| `WIKIIA_ROOTS` | Secrets de Streamlit Cloud (opcional) | Correos administradores extra, separados por comas |
+| `GROQ_API_KEY` | Secret del repositorio en GitHub (Actions) | Investigar fichas en la actualización automática |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Secret del repositorio (opcional) | Avisos de modelos nuevos por Telegram |
+| `GROQ_MODELO_GUIA` | `.env` (opcional) | Modelo de la guía; por defecto `openai/gpt-oss-20b`, con respaldo `gpt-oss-120b` |
 
-- **Modo público**: en Streamlit Cloud la app se pone sola en solo lectura (sin Configuración, investigar ni
-  editar; ahí no hay Ollama ni `.env`). Los datos se investigan en tu PC y se suben con `git push`.
-  `WIKIIA_PUBLICO=1` lo fuerza en tu PC para probarlo.
-- **Tour guiado**: la primera vez que alguien entra, un recorrido ilumina cada parte de la pantalla
-  (driver.js, MIT, en `wikiia/static/driverjs`). Una cookie recuerda que ya lo vio; para verlo de nuevo, abre
-  la app en una ventana de incógnito.
-- **Avisos**: el recuadro "¿Quieres enterarte?" aparece cuando el calendario ya está publicado. Con
-  `TELEGRAM_CANAL_URL` aparece también el botón del canal de Telegram.
-- **Guía con IA** (burbuja verde con la W, abajo a la derecha): entrevista al visitante (qué quiere lograr,
-  local o nube, su computador, presupuesto) y le recomienda un modelo del catálogo con los pasos para empezar.
-  La IA busca con la herramienta `buscar_modelos` (`wikiia/chat.py`) en vez de responder de memoria. Cada
-  visitante usa **su propia clave gratis de Groq**. Usa un modelo moderado (`GROQ_MODELO_GUIA`,
-  `openai/gpt-oss-20b`) y, si Groq pide una pausa o se queda sin cupo, espera o pasa a `gpt-oss-120b`. Los
-  errores de Groq nunca se muestran crudos: la persona ve qué hacer (esperar, verificar su clave…).
-- **Iniciar sesión** (`wikiia/cuentas.py`): con `DATABASE_URL` (PostgreSQL) y `WIKIIA_SECRETO`, **toda la app
-  pide iniciar sesión**. El registro pide nombre, correo y la contraseña dos veces; el correo identifica a cada
-  usuario (llave primaria de `wikiia_usuarios`, llave foránea de `wikiia_sesiones`). El ojo de la casilla
-  muestra u oculta la contraseña. La sesión se recuerda 30 días; en la barra lateral está «👤 tu nombre» para
-  cerrar sesión, cambiar la clave de Groq o borrar la cuenta. La contraseña solo se guarda como huella scrypt y
-  la clave de Groq, cifrada. Sin esas dos variables (tu PC) no se pide iniciar sesión.
-- **Root** (administradores): los correos con su huella en `ROOTS_SHA256` (`wikiia/cuentas.py`) o en el
-  Secret `WIKIIA_ROOTS` (separados por comas) ven la pestaña **👑 Administración**: usuarios registrados, quién
-  guardó clave de Groq, sesiones abiertas y borrar cuentas. Cualquiera puede **cambiar su contraseña** en
-  «👤 su nombre» (cierra sus sesiones en otros navegadores).
-- **Enlaces revisados** (`wikiia/enlaces.py`): `.venv/bin/python -m wikiia enlaces` revisa que abran los
-  enlaces de modelos y empresas (también corre en cada actualización automática). Los rotos no se muestran:
-  la app y el calendario usan el siguiente enlace disponible.
-- **Calendario a mano**: `.venv/bin/python -m wikiia.calendario --carpeta _site`
+`.env.example` explica todas las variables para correrla en tu computador.
 
-Para que el workflow pueda publicar (una sola vez): en GitHub, **Settings → Pages → Build and deployment →
-Source: GitHub Actions**.
+**Puesta en marcha en la nube (una sola vez)**
 
-La actualización automática corre en GitHub Actions; el temporizador del PC (`scripts/instalar_temporizador.sh`)
-quedó apagado para no tener dos copias de la base. Antes de trabajar en tu PC, trae la base nueva con `git pull`.
+1. Streamlit Community Cloud → *New app* → este repositorio, rama `main`, archivo `app.py`.
+2. Neon → crear proyecto → copiar la *connection string* (con `sslmode=require&channel_binding=require`).
+3. Streamlit → *Manage app → ⋮ → Settings → Secrets*: `DATABASE_URL` y `WIKIIA_SECRETO`
+   (generarlo con `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`). Las tablas se crean solas.
+4. GitHub → *Settings → Pages → Source: GitHub Actions*.
+5. GitHub → *Settings → Secrets and variables → Actions*: `GROQ_API_KEY`.
 
-### Base de datos de las cuentas (PostgreSQL)
+---
 
-1. Crea una base gratis en [neon.tech](https://neon.tech) (entra con GitHub) y copia la *connection string*
-   (`postgresql://…?sslmode=require`).
-2. Genera un secreto: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
-3. En Streamlit Cloud: **Manage app → ⋮ → Settings → Secrets** y pega:
+## Estructura
 
-   ```toml
-   DATABASE_URL = "postgresql://…"
-   WIKIIA_SECRETO = "el-secreto-que-generaste"
-   ```
+```
+app.py                      interfaz completa (login, filtros, pestañas, fichas, guía, administración)
+wikiia/
+  actualizador.py           la actualización completa (fuentes → reglas → IA → enlaces → alertas)
+  fuentes/                  OpenRouter y Hugging Face
+  catalogo.py, heuristicas.py  empresas, países y reglas automáticas (capacidades, potencia, enlaces)
+  investigador.py, llm.py   fichas con IA (Groq, con Ollama de respaldo en el PC)
+  motores.py                comandos de descarga y requisitos para cada motor local
+  chat.py                   guía con IA (herramienta buscar_modelos, reintentos y mensajes amables)
+  cuentas.py                cuentas en PostgreSQL (login, sesiones, root, claves cifradas)
+  enlaces.py                revisión de enlaces
+  calendario.py             calendario .ics y su página
+  db.py, config.py          base SQLite y configuración
+  static/                   tour guiado (driver.js)
+data/                       empresas, países y catálogo manual (JSON)
+.github/workflows/          actualización automática y calendario
+wikiia.db                   catálogo (lo actualiza el robot)
+```
 
-   (En tu PC van en el `.env`.) Las tablas `wikiia_usuarios` y `wikiia_sesiones` se crean solas. No cambies
-   `WIKIIA_SECRETO` después: las claves de Groq guardadas dejarían de abrir.
+---
 
 ## Versiones
 
-Cada lote de cambios se marca con un tag (`git tag -a v1.0.2 -m "..."` y `git push origin v1.0.2`).
+Versionado semántico (`MAYOR.MENOR.PARCHE`): cada cambio se publica con un tag anotado en GitHub.
+**La versión estable para revisión es `v2.0.0`**. Los cambios de cada versión están en
+[CHANGELOG.md](CHANGELOG.md). Las dependencias están fijadas en `requirements.txt` con las versiones probadas.
 
-## Personalizar
+## Límites conocidos
 
-- **`.env`**: API de Groq, modelo de Ollama, Telegram, calendario (ver `.env.example`).
-- **`data/empresas.json`**: agrega empresas y sus organizaciones de Hugging Face / prefijos de OpenRouter.
-- **`data/paises.json`**: países y su nota de privacidad.
-- **`data/manuales.json`**: servicios que no aparecen en las fuentes automáticas.
-- Desde la app puedes **corregir cualquier ficha**; tus cambios nunca se sobrescriben.
+- La **potencia** es una estimación (tamaño, precio, comparación con modelos hermanos y documentación), no
+  un benchmark.
+- Las fichas se investigan de a 20 por actualización: las que faltan se completan en unos días.
+- La guía depende del plan gratis de Groq (unos 8 000 tokens por minuto): si se llena, pide esperar unos
+  segundos.
+- Si la app pasa varios días sin visitas, Streamlit la pone a dormir: toca **«Yes, get this app back up»** y
+  espera un minuto.
+- GitHub puede retrasar unos minutos las tareas programadas.
 
-## Límites que conviene saber
+## Créditos
 
-- La **potencia** es una estimación (tamaño, precio, comparación con la misma empresa y documentación),
-  no un benchmark. Corrígela a mano cuando sepas más.
-- Los servicios de video/imagen cerrados (Sora, Veo, Kling…) no tienen fuente automática: sus
-  versiones nuevas no generan alerta todavía.
-- Ollama en CPU es lento (~1 minuto por ficha): se usa solo como respaldo.
+- Datos: [OpenRouter](https://openrouter.ai) y [Hugging Face](https://huggingface.co).
+- IA: [Groq](https://groq.com) (`gpt-oss`) y [Ollama](https://ollama.com).
+- Tour guiado: [driver.js](https://driverjs.com) (licencia MIT, en `wikiia/static/driverjs`).
+- Hecho con [Streamlit](https://streamlit.io), SQLite y PostgreSQL ([Neon](https://neon.tech)).
+
+Autor: **Diego Castelblanco** ([DiegoWhite99](https://github.com/DiegoWhite99)).

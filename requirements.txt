@@ -1,5 +1,8 @@
-streamlit>=1.50
-requests>=2.31
-python-dotenv>=1.0
-psycopg[binary]>=3.2
-cryptography>=42
+# Versiones fijadas y probadas (WikiIA v2.0.0). Para actualizarlas, probar la app antes de subir.
+streamlit==1.65.0
+pandas==2.3.3
+altair==6.2.2
+requests==2.34.2
+python-dotenv==1.2.4
+psycopg[binary]==3.3.8
+cryptography==50.0.2

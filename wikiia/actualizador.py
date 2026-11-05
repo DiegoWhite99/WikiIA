@@ -6,7 +6,7 @@ import json
 from contextlib import contextmanager
 from typing import Callable
 
-from . import alertas, db, enlaces, investigador
+from . import alertas, benchmarks, db, enlaces, investigador
 from .catalogo import Resolutor, sincronizar_catalogo
 from .config import BLOQUEO, DATOS, Config, cargar_config
 from .fuentes import huggingface, nueva_sesion, openrouter
@@ -39,7 +39,7 @@ def recalcular_potencia(con) -> None:
     for f in filas:
         if "potencia" in db.cargar_json(f["manual"], []):
             continue
-        p = potencia_heuristica(f)
+        p = min(potencia_heuristica(f), benchmarks.TOPE_ESTIMADA)  # sin benchmark nadie es 5★
         if p != f["potencia"] or f["potencia_fuente"] is None:
             con.execute(
                 "UPDATE modelos SET potencia=?, potencia_fuente='heurística', "
@@ -151,6 +151,16 @@ def _ejecutar(cfg: Config, investigar: int | None, alertar: bool, progreso) -> d
 
     # 3) Catálogo manual (servicios de imagen y video sin API pública en las fuentes).
     nuevos += _cargar_manuales(con)
+    con.commit()
+
+    # 3b) Potencia medida: Intelligence Index de Artificial Analysis (si hay clave; si no, lo último guardado).
+    try:
+        medidos = benchmarks.actualizar(con, cfg.aa_api_key, sesion, progreso)
+        progreso(f"Benchmarks: {medidos['medidos']} modelos con potencia medida.")
+        if medidos["aviso"] and cfg.aa_api_key:
+            errores.append(medidos["aviso"])
+    except Exception as e:  # noqa: BLE001 - el benchmark nunca detiene la actualización
+        errores.append(f"Benchmarks: {e}")
     recalcular_potencia(con)
     con.commit()
 

@@ -6,6 +6,7 @@
     python -m wikiia probar-alerta
     python -m wikiia estado
     python -m wikiia enlaces [--todos]     # revisa que los enlaces de modelos y empresas abran
+    python -m wikiia benchmarks            # potencia medida con el índice de Artificial Analysis
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import argparse
 import json
 import sys
 
-from . import alertas, db, enlaces, investigador
+from . import alertas, benchmarks, db, enlaces, investigador
 from .actualizador import ejecutar
 from .config import cargar_config
 from .fuentes import nueva_sesion
@@ -69,6 +70,7 @@ def main(argv=None) -> int:
     e = sub.add_parser("enlaces", help="Revisa que los enlaces de modelos y empresas abran")
     e.add_argument("--todos", action="store_true", help="revisa también los que ya se revisaron hace poco")
     e.add_argument("--limite", type=int, default=None)
+    sub.add_parser("benchmarks", help="Potencia medida con el Intelligence Index de Artificial Analysis")
     args = parser.parse_args(argv)
     cfg = cargar_config()
 
@@ -95,6 +97,13 @@ def main(argv=None) -> int:
         return 0
     if args.comando == "estado":
         return _estado()
+    if args.comando == "benchmarks":
+        con = db.conectar()
+        r = benchmarks.actualizar(con, cfg.aa_api_key, nueva_sesion())
+        print(f"Potencia medida en {r['medidos']} modelos (mejor índice: {r['maximo']:.0f})."
+              + (f" Aviso: {r['aviso']}" if r["aviso"] else ""))
+        con.close()
+        return 0
     if args.comando == "enlaces":
         con = db.conectar()
         conteo = enlaces.revisar(con, todos=args.todos, limite=args.limite)

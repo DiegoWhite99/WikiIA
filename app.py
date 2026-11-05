@@ -64,8 +64,10 @@ AZUL = "#2a78d6"
 RAMPA_AZUL = ["#cde2fb", "#0d366b"]
 COLORES_ACCESO = {"☁️ API / nube": "#2a78d6", "🖥️ Local": "#eb6834", "🖥️ Local + ☁️ API": "#1baf7a"}
 ORDENES = {
-    # A igual potencia, primero las fichas investigadas (más confiables) y luego las más recientes.
-    "⭐ Más potentes": (["potencia", "investigado", "fecha_dt"], [False, False, False]),
+    # Primero lo medido con benchmark (índice de Artificial Analysis); después la potencia estimada, sin desempatar
+    # por fecha (antes el más nuevo de los empatados salía primero aunque no fuera el más potente).
+    # Entre estimados de igual nivel desempata el precio: el modelo tope de cada empresa suele ser el más caro.
+    "⭐ Más potentes": (["indice_ia", "potencia", "precio_salida", "parametros_b"], [False, False, False, False]),
     "🆕 Más recientes": (["fecha_dt", "potencia"], [False, False]),
     "🏢 Empresa": (["empresa", "potencia"], [True, False]),
     "💲 Más baratos (API)": (["precio_salida", "potencia"], [True, False]),
@@ -78,7 +80,13 @@ COLUMNAS_TABLA = {
         "Modelo", width="medium", display_text=r".*#(.+)$",
         help="Toca el nombre para abrir su página: descarga en Hugging Face (modelos locales) "
              "o su web / chat oficial (modelos en la nube)"),
-    "estrellas": st.column_config.TextColumn("Potencia", help="★★★★★ Frontera · ★★★★ Alto · ★★★ Medio · ★★ Ligero · ★ Básico"),
+    "estrellas": st.column_config.TextColumn(
+        "Potencia", help="★★★★★ Frontera · ★★★★ Alto · ★★★ Medio · ★★ Ligero · ★ Básico. Con «Índice IA» está medida "
+                         "con un benchmark; sin índice es una estimación de WikiIA (máximo ★★★★)."),
+    "indice_ia": st.column_config.NumberColumn(
+        "Índice IA", format="%.0f",
+        help="Intelligence Index de Artificial Analysis: benchmark independiente que mide a todos los modelos con las "
+             "mismas pruebas (más alto = más inteligente). Vacío = todavía sin medir."),
     "sirve_para": st.column_config.TextColumn(
         "Sirve para",
         help="💻 código · 🔬 investigación · 💬 chat · 👁️ visión · 🎨 imágenes · 🎬 video · 🎙️ voz/audio · 🦾 agentes"),
@@ -184,8 +192,9 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
                 st.badge(f"Ya no está en OpenRouter ({f['retirado']})", icon="⚠️", color="orange")
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric(f"Potencia · {ETIQUETA_POTENCIA.get(f['potencia'], '—')}", f["estrellas"],
-                  help=f"{texto(f['potencia_razon'])}  \nFuente: {texto(f['potencia_fuente']) or '—'}")
+        medida = pd.notna(f.get("indice_ia"))
+        c1.metric(f"Potencia {'medida' if medida else 'estimada'} · {ETIQUETA_POTENCIA.get(f['potencia'], '—')}",
+                  f["estrellas"], help=f"{texto(f['potencia_razon'])}  \nFuente: {texto(f['potencia_fuente']) or '—'}")
         c2.metric("Cómo se usa", f["acceso_label"])
         # "\$": sin escapar, Streamlit toma "$4 / $20" como una fórmula matemática.
         c3.metric("Precio", texto_precio(f, corto=True).replace("$", r"\$"),
@@ -194,6 +203,11 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
         c4.metric("Memoria de conversación", f"{contexto / 1000:,.0f}K tokens" if contexto else "—",
                   help="Cuánto texto puede leer de una vez (ventana de contexto)")
 
+        if medida:
+            st.caption(f"📊 **Intelligence Index: {f['indice_ia']:.0f}** según "
+                       f"[Artificial Analysis](https://artificialanalysis.ai/), donde se llama «{f['indice_ia_nombre']}».")
+        else:
+            st.caption("📊 Sin medición de benchmark todavía: la potencia es una estimación de WikiIA.")
         if texto(f["resumen"]):
             st.markdown(f"**¿Para qué sirve?** {f['resumen']}")
             if texto(f["mejor_para"]):
@@ -906,7 +920,8 @@ with tab_pais:
     orden_paises = df.groupby("pais_label").size().sort_values(ascending=False)
     for pais_label, n in orden_paises.items():
         grupo = df[df["pais_label"] == pais_label]
-        top = ", ".join(grupo.sort_values(["potencia", "fecha_dt"], ascending=False)["nombre"].head(3))
+        top = ", ".join(grupo.sort_values(["indice_ia", "potencia", "fecha_dt"], ascending=False,
+                                          na_position="last")["nombre"].head(3))
         # key fija: si cambian los números o destacados, React actualiza el texto en vez de rehacer la sección.
         with st.expander(f"**{pais_label}** — {n} modelos · {grupo['empresa_id'].nunique()} empresas · "
                          f"destacados: {top}", expanded=len(orden_paises) == 1,
@@ -916,13 +931,17 @@ with tab_pais:
                 st.warning(nota, icon="⚠️")
             st.markdown(" · ".join(f"**{e}** ({c})" for e, c in grupo["empresa"].value_counts().items()))
             tabla_con_ficha(grupo, f"pais_{grupo['pais_codigo'].iloc[0]}",
-                            ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt"])
+                            ["modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- ranking ----------
 with tab_rank:
     st.caption(f"Todos los modelos que cumplen los filtros, ordenados por: **{orden}**. " + AYUDA_TABLA)
+    if orden == "⭐ Más potentes":
+        st.caption("📊 Primero los modelos **medidos** con el Intelligence Index de "
+                   "[Artificial Analysis](https://artificialanalysis.ai/) (benchmark independiente); después, los que "
+                   "aún no tienen medición, con su potencia **estimada** por WikiIA.")
     tabla_con_ficha(df, "ranking",
-                    ["pais_label", "modelo", "estrellas", "sirve_para", "acceso_label", "precio",
+                    ["pais_label", "modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio",
                      "fecha_dt"], alto=560)
 
 # ---------- por empresa ----------
@@ -948,7 +967,7 @@ with tab_emp:
         if enlace_ok(fila_emp["empresa_web"]):
             st.link_button(f"🔗 Web de {fila_emp['empresa']}", fila_emp["empresa_web"])
         tabla_con_ficha(grupo, f"empresa_{empresa_id}",
-                        ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt"])
+                        ["modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- novedades ----------
 with tab_nov:

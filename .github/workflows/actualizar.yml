@@ -4,6 +4,7 @@
 #
 # Requisito: Settings → Secrets and variables → Actions → New repository secret
 #   GROQ_API_KEY = tu clave de Groq (sin ella se actualiza el catálogo, pero no se investigan fichas).
+#   ARTIFICIAL_ANALYSIS_API_KEY = clave gratis de https://artificialanalysis.ai (potencia medida con benchmark).
 #   Opcional: TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID para recibir los avisos de modelos nuevos.
 # Para correrlo a mano: pestaña Actions → «Actualizar datos» → Run workflow.
 name: Actualizar datos
@@ -41,9 +42,10 @@ jobs:
       - name: Instalar lo que usa la actualización
         run: pip install --quiet requests python-dotenv
 
-      - name: Comprobar la clave de Groq
+      - name: Comprobar las claves (Groq y Artificial Analysis)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
         run: |
           python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import os, requests
@@ -55,11 +57,15 @@ jobs:
                                headers={"Authorization": f"Bearer {clave}"})
               print("✅ Groq conectado: se investigan fichas." if r.ok else
                     f"⚠️ Groq no aceptó la clave (código {r.status_code}): revisa el Secret GROQ_API_KEY.")
+          print("✅ Artificial Analysis: hay clave, la potencia se mide con benchmark."
+                if os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY", "").strip() else
+                "⚠️ Falta el Secret ARTIFICIAL_ANALYSIS_API_KEY: la potencia sigue siendo estimada.")
           EOF
 
       - name: Buscar modelos nuevos, investigar fichas y revisar enlaces
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ARTIFICIAL_ANALYSIS_API_KEY: ${{ secrets.ARTIFICIAL_ANALYSIS_API_KEY }}
           LLM_PROVEEDOR: groq            # en la nube no hay Ollama
           INVESTIGAR_POR_EJECUCION: "20" # deja cupo gratis de Groq para la guía
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

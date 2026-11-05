@@ -55,6 +55,7 @@ class Config:
     database_url: str         # PostgreSQL de las cuentas (correo + contraseña); vacío = sin cuentas
     secreto: str              # WIKIIA_SECRETO: cifra las claves de Groq guardadas en las cuentas
     roots: frozenset          # WIKIIA_ROOTS: correos administradores extra (además de los de wikiia/cuentas.py)
+    aa_api_key: str           # ARTIFICIAL_ANALYSIS_API_KEY: benchmark real para la potencia (wikiia/benchmarks.py)
 
 
 def es_publico() -> bool:
@@ -95,6 +96,7 @@ def cargar_config() -> Config:
         database_url=_secreto("DATABASE_URL"),
         secreto=_secreto("WIKIIA_SECRETO"),
         roots=frozenset(c.strip().lower() for c in _secreto("WIKIIA_ROOTS").split(",") if c.strip()),
+        aa_api_key=_env("ARTIFICIAL_ANALYSIS_API_KEY"),
     )
 
 

@@ -6,6 +6,7 @@ from datetime import date
 
 from . import db, motores
 from .fuentes import huggingface, nueva_sesion
+from .benchmarks import FUENTE as FUENTE_BENCHMARK, TOPE_ESTIMADA
 from .heuristicas import num, potencia_heuristica
 from .llm import ClienteLLM, ErrorLLM
 
@@ -37,11 +38,12 @@ Responde con este JSON exacto:
   "potencia_razon": "una frase explicando el nivel",
   "notas": ["hasta 3 advertencias o datos importantes para quien lo quiera usar"]
 }}
-Escala de potencia (sé exigente, el 5 es escaso):
-  5 = frontera: el modelo tope de una empresa líder (el más caro o grande de su familia), compite con los mejores del mundo.
-  4 = alto: muy capaz pero por debajo del tope de su empresa (por ejemplo la versión intermedia, o un tope de una empresa secundaria).
+Escala de potencia: compáralo con LOS MEJORES MODELOS DEL MUNDO de hoy, no con su propia familia. Ser "el más
+grande de su empresa" no lo hace de frontera. Sé exigente:
+  5 = frontera mundial: compite de igual a igual con los mejores modelos de OpenAI, Anthropic y Google de hoy.
+  4 = alto: muy capaz, pero por debajo de la frontera mundial (el tope de casi cualquier otra empresa va aquí).
   3 = medio: versiones "mini", "flash", "lite" o modelos medianos.  2 = ligero: pequeños o muy baratos.  1 = muy pequeño o experimental.
-Compáralo con los otros modelos de su misma empresa (precio y tamaño): si hay uno claramente más caro o grande y reciente, este NO es 5.
+Si hay un modelo de la misma empresa claramente más caro o grande y reciente, este no puede estar por encima de él.
 Estimación automática por tamaño y precio: {potencia_ref} (solo orientativa).
 "codigo" = sirve bien para programar. "investigacion" = razonamiento profundo, matemáticas o investigación. "agentes" = usa herramientas o actúa de forma autónoma.
 En "notas" NO repitas la licencia, el precio ni el país (ya se muestran aparte): da consejos prácticos."""
@@ -165,8 +167,9 @@ def investigar_modelo(con, cliente: ClienteLLM, modelo_id: str, sesion=None) -> 
         potencia = int(round(float(respuesta.get("potencia"))))
     except (TypeError, ValueError):
         potencia = None
-    if potencia and 1 <= potencia <= 5 and "potencia" not in manual:
-        campos["potencia"] = potencia
+    medida = fila["potencia_fuente"] == FUENTE_BENCHMARK  # el benchmark real gana a la estimación de la IA
+    if potencia and 1 <= potencia <= 5 and "potencia" not in manual and not medida:
+        campos["potencia"] = min(potencia, TOPE_ESTIMADA)  # el 5 queda para la frontera medida
         campos["potencia_fuente"] = f"IA ({proveedor})"
         campos["potencia_razon"] = str(respuesta.get("potencia_razon") or "").strip()[:300]
 

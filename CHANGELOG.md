@@ -2,6 +2,16 @@
 
 WikiIA usa versionado semántico (`MAYOR.MENOR.PARCHE`). Cada versión es un tag anotado en GitHub.
 
+## v2.1.0 — Ranking con benchmark real (2026-11-05)
+
+- El ranking «⭐ Más potentes» se ordena por el **Intelligence Index de Artificial Analysis** (benchmark
+  independiente), con una columna «Índice IA» y el puntaje en cada ficha.
+- **5★ solo para la frontera medida**: las estimaciones (IA, reglas o catálogo manual) llegan como máximo a ★4.
+  Antes la IA comparaba cada modelo con su propia familia y había 16 modelos empatados en 5★.
+- Ya no se desempata por fecha: entre estimados del mismo nivel desempata el precio.
+- La IA que investiga fichas compara la potencia con los mejores modelos del mundo, no con su familia.
+- La guía con IA también usa el índice para recomendar.
+
 ## v2.0.0 — Versión estable (2026-11-05)
 
 Primera versión estable, lista para revisión.

@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS meta (
     clave TEXT PRIMARY KEY,
     valor TEXT
 );
+CREATE TABLE IF NOT EXISTS benchmarks (         -- lo llena wikiia/benchmarks.py (Artificial Analysis)
+    aa_id TEXT PRIMARY KEY,
+    nombre TEXT,
+    slug TEXT,
+    creador TEXT,
+    indice REAL,                        -- Intelligence Index
+    publicado TEXT,
+    actualizado TEXT
+);
 CREATE TABLE IF NOT EXISTS enlaces_estado (     -- lo llena wikiia/enlaces.py
     url TEXT PRIMARY KEY,
     ok INTEGER,                         -- 1 abre · 0 roto · NULL no se pudo confirmar
@@ -134,6 +143,8 @@ _COLUMNAS_NUEVAS = {
         "peso_gb": "REAL",                  # tamaño real de los archivos originales
         "gated": "TEXT",                    # Hugging Face pide aceptar licencia antes de descargar
         "descargas": "TEXT DEFAULT '{}'",   # versiones GGUF / MLX encontradas
+        "indice_ia": "REAL",                # Intelligence Index de Artificial Analysis (benchmark real)
+        "indice_ia_nombre": "TEXT",         # cómo se llama el modelo en Artificial Analysis
     },
     "empresas": {"chat_url": "TEXT", "api_url": "TEXT"},
 }

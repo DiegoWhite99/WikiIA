@@ -9,7 +9,7 @@ según el país de la empresa. Se actualiza sola en la nube cada 6 horas.
 |---|---|
 | 🚀 **App** | https://wikiia-bl3pec2wdfzvcxdg9jq5aw.streamlit.app/ (hay que crear una cuenta gratis) |
 | 📅 **Calendario de lanzamientos** | https://diegowhite99.github.io/WikiIA/ |
-| 🏷️ **Versión estable** | [`v2.0.0`](https://github.com/DiegoWhite99/WikiIA/tree/v2.0.0) · historial en [CHANGELOG.md](CHANGELOG.md) |
+| 🏷️ **Versión estable** | [`v2.1.0`](https://github.com/DiegoWhite99/WikiIA/tree/v2.1.0) · historial en [CHANGELOG.md](CHANGELOG.md) |
 
 Al 5 de noviembre de 2026: **983 modelos** de **85 empresas** en **14 países**.
 
@@ -18,6 +18,9 @@ Al 5 de noviembre de 2026: **983 modelos** de **85 empresas** en **14 países**.
 ## Qué puede hacer
 
 - **Explorar el catálogo** por país, ranking de potencia, empresa, novedades y estadísticas con gráficos.
+- **Ranking con benchmark real**: el orden de «⭐ Más potentes» sale del **Intelligence Index de
+  [Artificial Analysis](https://artificialanalysis.ai/)**, que mide a todos los modelos con las mismas pruebas.
+  Los que aún no tienen medición van después, con su potencia estimada por WikiIA.
 - **Filtrar** por texto, país, empresa, para qué sirve (💻 código · 🔬 investigación · 💬 chat · 👁️ visión ·
   🎨 imágenes · 🎬 video · 🎙️ voz · 🦾 agentes), cómo se usa (nube, local o ambos), costo, potencia y fecha.
 - **Ver la ficha completa de cada modelo**: el nombre es el enlace a su página oficial y la casilla de la fila
@@ -41,7 +44,7 @@ Al 5 de noviembre de 2026: **983 modelos** de **85 empresas** en **14 países**.
 | Cómo se usa | ☁️ Nube (API) · 🖥️ Local (pesos abiertos) · ambos |
 | Precio | USD por millón de tokens (entrada / salida), gratis o local |
 | Sirve para | Capacidades: código, investigación, chat, visión, imágenes, video, voz, agentes |
-| Potencia | ★1 a ★5, con la razón y quién la decidió (reglas automáticas o IA) |
+| Potencia | ★1 a ★5 **medida** con el Intelligence Index de Artificial Analysis o, si no hay medición, **estimada** por WikiIA (máximo ★4) |
 | Técnico | Tamaño, contexto, licencia y memoria necesaria |
 | ⚠️ Importante | Privacidad y leyes del país, licencia comercial, versiones preview, consejos |
 | 📥 Descargar y ejecutar | (modelos locales) Comando listo para copiar en cada motor: Ollama, LM Studio, llama.cpp, Jan, vLLM, SGLang, Transformers, MLX (Mac); para imagen/video: ComfyUI y Diffusers |
@@ -80,10 +83,12 @@ No hace falta ningún computador encendido: todo corre en la nube.
    cuantizadas, LoRA y experimentos. `data/manuales.json` agrega servicios sin API pública (Sora, Veo, Kling,
    Midjourney…).
 2. **Reglas automáticas** deducen capacidades, acceso, precio y una potencia inicial.
-3. **Investigación con IA**: Groq (`openai/gpt-oss-120b`) lee la documentación oficial y redacta 20 fichas en
-   español por vuelta.
-4. **Revisa los enlaces** nuevos o con más de 14 días.
-5. **Guarda la base** en el repositorio y republica el calendario.
+3. **Benchmark**: descarga el Intelligence Index de Artificial Analysis y lo empareja con cada modelo por su
+   nombre. Las estrellas salen de ese puntaje frente al mejor modelo medido (5★ desde el 85 %).
+4. **Investigación con IA**: Groq (`openai/gpt-oss-120b`) lee la documentación oficial y redacta 20 fichas en
+   español por vuelta. Si estima la potencia, la compara con los mejores modelos del mundo y nunca pasa de ★4.
+5. **Revisa los enlaces** nuevos o con más de 14 días.
+6. **Guarda la base** en el repositorio y republica el calendario.
 
 ---
 
@@ -134,6 +139,7 @@ cp .env.example .env          # opcional: clave de Groq, Ollama, Telegram…
 .venv/bin/python -m wikiia investigar --cantidad 50
 .venv/bin/python -m wikiia investigar --modelo deepseek/deepseek-v4.1-flash
 .venv/bin/python -m wikiia enlaces [--todos]       # revisar que abran los enlaces
+.venv/bin/python -m wikiia benchmarks              # potencia medida (Artificial Analysis)
 .venv/bin/python -m wikiia probar-llm              # comprobar Groq y Ollama
 .venv/bin/python -m wikiia estado                  # resumen de la base
 .venv/bin/python -m wikiia.calendario --carpeta _site
@@ -149,6 +155,7 @@ cp .env.example .env          # opcional: clave de Groq, Ollama, Telegram…
 | `WIKIIA_SECRETO` | Secrets de Streamlit Cloud | Cifra las claves de Groq. No cambiarlo después |
 | `WIKIIA_ROOTS` | Secrets de Streamlit Cloud (opcional) | Correos administradores extra, separados por comas |
 | `GROQ_API_KEY` | Secret del repositorio en GitHub (Actions) | Investigar fichas en la actualización automática |
+| `ARTIFICIAL_ANALYSIS_API_KEY` | Secret del repositorio en GitHub (Actions) | Potencia medida con benchmark (clave gratis en artificialanalysis.ai) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Secret del repositorio (opcional) | Avisos de modelos nuevos por Telegram |
 | `GROQ_MODELO_GUIA` | `.env` (opcional) | Modelo de la guía; por defecto `openai/gpt-oss-20b`, con respaldo `gpt-oss-120b` |
 
@@ -161,7 +168,7 @@ cp .env.example .env          # opcional: clave de Groq, Ollama, Telegram…
 3. Streamlit → *Manage app → ⋮ → Settings → Secrets*: `DATABASE_URL` y `WIKIIA_SECRETO`
    (generarlo con `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`). Las tablas se crean solas.
 4. GitHub → *Settings → Pages → Source: GitHub Actions*.
-5. GitHub → *Settings → Secrets and variables → Actions*: `GROQ_API_KEY`.
+5. GitHub → *Settings → Secrets and variables → Actions*: `GROQ_API_KEY` y `ARTIFICIAL_ANALYSIS_API_KEY`.
 
 ---
 
@@ -178,6 +185,7 @@ wikiia/
   chat.py                   guía con IA (herramienta buscar_modelos, reintentos y mensajes amables)
   cuentas.py                cuentas en PostgreSQL (login, sesiones, root, claves cifradas)
   enlaces.py                revisión de enlaces
+  benchmarks.py             potencia medida con el Intelligence Index de Artificial Analysis
   calendario.py             calendario .ics y su página
   db.py, config.py          base SQLite y configuración
   static/                   tour guiado (driver.js)
@@ -191,13 +199,13 @@ wikiia.db                   catálogo (lo actualiza el robot)
 ## Versiones
 
 Versionado semántico (`MAYOR.MENOR.PARCHE`): cada cambio se publica con un tag anotado en GitHub.
-**La versión estable para revisión es `v2.0.0`**. Los cambios de cada versión están en
+**La versión estable para revisión es `v2.1.0`**. Los cambios de cada versión están en
 [CHANGELOG.md](CHANGELOG.md). Las dependencias están fijadas en `requirements.txt` con las versiones probadas.
 
 ## Límites conocidos
 
-- La **potencia** es una estimación (tamaño, precio, comparación con modelos hermanos y documentación), no
-  un benchmark.
+- La **potencia medida** depende de que Artificial Analysis haya evaluado el modelo. Los demás tienen una
+  potencia **estimada** (tamaño, precio y documentación), que nunca pasa de ★4.
 - Las fichas se investigan de a 20 por actualización: las que faltan se completan en unos días.
 - La guía depende del plan gratis de Groq (unos 8 000 tokens por minuto): si se llena, pide esperar unos
   segundos.
@@ -208,6 +216,7 @@ Versionado semántico (`MAYOR.MENOR.PARCHE`): cada cambio se publica con un tag 
 ## Créditos
 
 - Datos: [OpenRouter](https://openrouter.ai) y [Hugging Face](https://huggingface.co).
+- Benchmark: Intelligence Index de [Artificial Analysis](https://artificialanalysis.ai/).
 - IA: [Groq](https://groq.com) (`gpt-oss`) y [Ollama](https://ollama.com).
 - Tour guiado: [driver.js](https://driverjs.com) (licencia MIT, en `wikiia/static/driverjs`).
 - Hecho con [Streamlit](https://streamlit.io), SQLite y PostgreSQL ([Neon](https://neon.tech)).

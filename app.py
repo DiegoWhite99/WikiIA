@@ -788,16 +788,30 @@ with tab_est:
 # recomienda un modelo. Público: cada visitante usa SU clave de Groq, guardada solo en st.session_state (nunca en
 # disco ni en st.cache_*, que se comparte entre visitantes). En tu PC: la del .env.
 CSS_BURBUJA = """<style>
-.st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 24px; z-index: 999990; width: auto !important; }
-.st-key-burbuja_chat button { width: 62px; height: 62px; min-height: 62px; padding: 0 !important; border-radius: 50% !important;
-  border: none !important; background: #ff4b4b !important; color: #fff !important;
-  animation: wikiia-latido 2.4s ease-in-out infinite; }
-.st-key-burbuja_chat button p { font-size: 28px !important; line-height: 1; margin: 0; }
+/* Más arriba que la esquina: en Streamlit Cloud ahí está el botón "Manage app". */
+.st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 76px; z-index: 999990; width: auto !important;
+  overflow: visible !important; }
+/* Botón 3D: degradado con brillo arriba a la izquierda, sombra interna y un "canto" inferior que se hunde al tocarlo. */
+.st-key-burbuja_chat button { width: 64px; height: 64px; min-height: 64px; padding: 0 !important; border-radius: 50% !important;
+  border: none !important; color: #fff !important;
+  background: radial-gradient(circle at 32% 26%, #ff9a9a 0%, #ff5a5a 38%, #e3262d 72%, #b3141b 100%) !important;
+  box-shadow: inset 0 -6px 10px rgba(90, 0, 0, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
+    0 6px 0 #8f1016, 0 14px 22px rgba(0, 0, 0, .35) !important;
+  transform: translateY(0); transition: transform .15s ease, box-shadow .15s ease; }
+.st-key-burbuja_chat button:hover { transform: translateY(-3px);
+  box-shadow: inset 0 -6px 10px rgba(90, 0, 0, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
+    0 9px 0 #8f1016, 0 20px 28px rgba(0, 0, 0, .35) !important; }
+.st-key-burbuja_chat button:active { transform: translateY(5px);
+  box-shadow: inset 0 -4px 8px rgba(90, 0, 0, .4), inset 0 4px 6px rgba(255, 255, 255, .35),
+    0 1px 0 #8f1016, 0 5px 10px rgba(0, 0, 0, .3) !important; }
+.st-key-burbuja_chat button p { font-size: 29px !important; line-height: 1; margin: 0;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
 .st-key-burbuja_chat button [data-testid="stIconMaterial"] { display: none; }
-@keyframes wikiia-latido {
-  0%, 100% { box-shadow: 0 8px 24px rgba(255, 75, 75, .45), 0 0 0 0 rgba(255, 75, 75, .45); }
-  50% { box-shadow: 0 8px 24px rgba(255, 75, 75, .45), 0 0 0 12px rgba(255, 75, 75, 0); } }
-.st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 74px; bottom: 14px;
+/* Onda que late alrededor (en un pseudo-elemento, para no pisar las sombras 3D). */
+.st-key-burbuja_chat::after { content: ""; position: absolute; right: 0; bottom: 0; width: 64px; height: 64px;
+  border-radius: 50%; pointer-events: none; z-index: -1; animation: wikiia-onda 2.4s ease-out infinite; }
+@keyframes wikiia-onda { 0% { box-shadow: 0 0 0 0 rgba(255, 75, 75, .55); } 70%, 100% { box-shadow: 0 0 0 16px rgba(255, 75, 75, 0); } }
+.st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 78px; bottom: 16px;
   white-space: nowrap; padding: 8px 12px; border-radius: 12px; background: #fff; color: #1f2130; font-weight: 600;
   font-size: .9rem; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); pointer-events: none; opacity: 0;
   animation: wikiia-globo 9s ease 2s forwards; }
@@ -806,7 +820,7 @@ CSS_BURBUJA = """<style>
 /* La ventana se dibuja fuera de la burbuja (en un popover de Streamlit): se ubica por la clase de su contenido. */
 [data-testid="stPopoverBody"]:has(.st-key-ventana_guia) { width: min(410px, calc(100vw - 32px)) !important;
   max-width: calc(100vw - 32px) !important; border-radius: 18px !important; box-shadow: 0 18px 50px rgba(0, 0, 0, .28) !important; }
-@media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 16px; }
+@media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 72px; }
   .st-key-burbuja_chat::before { display: none; } }
 </style>"""
 

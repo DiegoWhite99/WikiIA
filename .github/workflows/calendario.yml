@@ -1,0 +1,52 @@
+# Publica en GitHub Pages el calendario de lanzamientos (wikiia.ics) y su página.
+# Corre solo cada vez que haces git push con la base o el código cambiados, o a mano desde la pestaña Actions.
+# Requisito (una sola vez): Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Publicar calendario
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wikiia.db"
+      - "wikiia/**"
+      - ".github/workflows/calendario.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - name: Descargar el repo
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generar calendario y página
+        run: python -m wikiia.calendario --carpeta _site
+
+      - name: Preparar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir los archivos
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Publicar
+        id: despliegue
+        uses: actions/deploy-pages@v4

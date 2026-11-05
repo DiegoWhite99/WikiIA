@@ -36,6 +36,9 @@ class Config:
     telegram_token: str
     telegram_chat_id: str
     investigar_por_ejecucion: int
+    calendario_url: str       # .ics publicado en GitHub Pages por el workflow
+    telegram_canal_url: str   # enlace público del canal (t.me/...) para que la gente se una
+    app_url: str              # la app publicada (se enlaza desde la página del calendario)
 
 
 def es_publico() -> bool:
@@ -69,6 +72,9 @@ def cargar_config() -> Config:
         telegram_token=_env("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_env("TELEGRAM_CHAT_ID"),
         investigar_por_ejecucion=max(0, por_ejecucion),
+        calendario_url=_env("WIKIIA_CALENDARIO_URL", "https://diegowhite99.github.io/WikiIA/wikiia.ics"),
+        telegram_canal_url=_env("TELEGRAM_CANAL_URL"),
+        app_url=_env("WIKIIA_APP_URL", "https://wikiia-bl3pec2wdfzvcxdg9jq5aw.streamlit.app/"),
     )
 
 

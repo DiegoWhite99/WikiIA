@@ -122,6 +122,20 @@ def texto(valor) -> str:
     return valor if isinstance(valor, str) else ""
 
 
+def enlace_principal(f) -> str | None:
+    """Local → su página de descarga en Hugging Face. Nube → su chat o web oficial.
+
+    `f` necesita: acceso, hf_id, enlaces, chat_url, empresa_web (fila de pandas o de sqlite).
+    """
+    from .db import cargar_json  # aquí para no cargar la base al importar las reglas
+
+    enlaces = cargar_json(f["enlaces"], {})
+    if f["acceso"] in ("local", "ambos") and texto(f["hf_id"]):
+        return f"https://huggingface.co/{f['hf_id']}"
+    return (texto(f["chat_url"]) or enlaces.get("web") or texto(f["empresa_web"])
+            or enlaces.get("openrouter") or None)
+
+
 def requisitos_local(fila, perfil: dict) -> tuple[str, str | None]:
     """Memoria aproximada para correrlo en tu equipo y si tu equipo alcanza.
 

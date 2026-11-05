@@ -1,21 +1,26 @@
 """WikiIA — interfaz web local.  Ejecutar con:  ./iniciar.sh   (o  .venv/bin/streamlit run app.py)"""
 from __future__ import annotations
 
+import base64
+import json
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import quote
 
 import altair as alt
 import pandas as pd
+import requests
 import streamlit as st
 
 from wikiia import db
 from wikiia.actualizador import ejecutar
 from wikiia.alertas import enviar as enviar_alerta, texto_precio
+from wikiia.calendario import enlaces_suscripcion
 from wikiia.config import DB_RUTA, cargar_config, es_publico, perfil_equipo
 from wikiia.heuristicas import (
     ETIQUETA_ACCESO, ETIQUETA_POTENCIA, ETIQUETAS_CAP, ICONO_CAP,
-    estrellas, notas_importantes, num, requisitos_local, texto, veredicto_texto,
+    enlace_principal, estrellas, notas_importantes, num, requisitos_local, texto, veredicto_texto,
 )
 from wikiia.investigador import investigar_modelo, pendientes
 from wikiia.motores import comando_descarga, es_difusion, motores, obtener_descargas, requisitos
@@ -79,15 +84,6 @@ COLUMNAS_TABLA = {
 
 
 # ───────────────────────────── datos ─────────────────────────────
-def enlace_principal(f) -> str | None:
-    """Local → su página de descarga en Hugging Face. Nube → su chat o web oficial."""
-    enlaces = db.cargar_json(f["enlaces"], {})
-    if f["acceso"] in ("local", "ambos") and texto(f["hf_id"]):
-        return f"https://huggingface.co/{f['hf_id']}"
-    return (texto(f["chat_url"]) or enlaces.get("web") or texto(f["empresa_web"])
-            or enlaces.get("openrouter") or None)
-
-
 def marca_db() -> tuple:
     rutas = [DB_RUTA, DB_RUTA.with_name(DB_RUTA.name + "-wal")]
     return tuple(r.stat().st_mtime if r.exists() else 0 for r in rutas)
@@ -380,83 +376,116 @@ def tabla_con_ficha(df: pd.DataFrame, clave: str, columnas: list[str], alto: int
         mostrar_ficha(fila, clave)
 
 
-# ───────────────────────────── tutorial ─────────────────────────────
-# Se muestra solo la primera vez: una cookie de 1 año recuerda en el navegador que ya se vio.
-COOKIE_TUTORIAL = "wikiia_tutorial_visto"
-PASOS_TUTORIAL = [
-    ("👋 Bienvenido a WikiIA",
-     "Aquí están los modelos de inteligencia artificial del mundo, con su país, potencia, precio y para qué sirven.\n\n"
-     "- **Toca el nombre de un modelo** para abrir su página: la descarga en Hugging Face si es local, "
-     "o su web o chat oficial si está en la nube.\n"
-     "- **Marca la casilla** al inicio de una fila para ver su ficha completa debajo de la tabla.\n\n"
-     "Los **filtros** están en la barra de la izquierda (en el celular, ábrela con **>** arriba a la izquierda). "
-     "Te los explico en un minuto."),
-    ("🔎 Buscar",
-     "Escribe parte del nombre, la empresa o un tema: `deepseek`, `gemma`, `video`, `código`…\n\n"
-     "Busca en el nombre, la empresa y el resumen de cada modelo."),
-    ("🌍 País y 🏢 Empresa",
-     "Elige uno o varios. El número entre paréntesis es cuántos modelos tiene cada uno.\n\n"
-     "La lista de empresas se ajusta a los países que elegiste. Déjalos vacíos para ver todos."),
-    ("🧩 Sirve para",
-     "Toca las capacidades que necesitas: " + " · ".join(ETIQUETAS_CAP.values()) + ".\n\n"
-     "Si eliges varias, solo salen los modelos que las tienen **todas**."),
-    ("☁️ Cómo se usa y 💲 Costo",
-     f"- **{ETIQUETA_ACCESO['api']}**: lo usas en su web o por API; normalmente pagas por uso.\n"
-     f"- **{ETIQUETA_ACCESO['local']}**: lo descargas y corre en tu computador, gratis.\n"
-     f"- **{ETIQUETA_ACCESO['ambos']}**: se puede de las dos formas.\n\n"
-     "En **Costo** eliges entre *Todos*, *Gratis / local* y *De pago*."),
-    ("⭐ Potencia, 📅 Publicado y Ordenar por",
-     "- **Potencia mínima**: " + " · ".join(f"{estrellas(p)} {ETIQUETA_POTENCIA[p]}" for p in range(5, 0, -1))
-     + ". Es una estimación, no un benchmark.\n"
-     "- **Publicado**: solo los de la última semana, mes, trimestre o año.\n"
-     "- **Ordenar por**: " + ", ".join(o.split(" ", 1)[1].lower() for o in ORDENES) + "."),
-    ("☑️ Las casillas",
-     "- **Ocultar los retirados de la API**: quita los que ya no se pueden usar." if PUBLICO else
-     "- **Solo los que corren en mi PC**: modelos locales que caben en la memoria de tu computador.\n"
-     "- **Ocultar los retirados de la API**: quita los que ya no se pueden usar.\n"
-     "- **Mostrar los que oculté**: vuelve a mostrar los modelos que escondiste desde su ficha."),
-    ("🗂️ Las pestañas",
-     "- **🌍 Por país** y **🏢 Por empresa**: los modelos agrupados.\n"
-     "- **🏆 Ranking**: todos en una sola tabla, en el orden que elegiste.\n"
-     "- **🔔 Novedades**: lo publicado en los últimos 30 días.\n"
-     "- **📊 Estadísticas**: gráficos por país y por capacidad.\n\n"
-     "Puedes volver a ver este tutorial con el botón **❓ Ver tutorial** de la barra lateral."),
-]
+# ───────────────────────────── tour guiado ─────────────────────────────
+# Se abre solo en la primera visita e ilumina cada parte de la pantalla (driver.js, MIT, en wikiia/static).
+# Una cookie de 1 año recuerda en el navegador que ya se vio; tour.js también la revisa antes de empezar.
+COOKIE_TOUR = "wikiia_tutorial_visto"
+ESTATICOS = Path(__file__).resolve().parent / "wikiia" / "static"
+CSS_TOUR = """
+.driver-overlay { z-index: 1000001 !important; }
+.driver-popover.wikiia-tour { border-radius: 14px; padding: 18px 18px 14px; max-width: 360px;
+  font-family: "Source Sans Pro", "Source Sans 3", system-ui, sans-serif; box-shadow: 0 14px 44px rgba(0,0,0,.4); }
+.driver-popover.wikiia-tour .driver-popover-title { font-size: 1.15rem; font-weight: 700; color: #1f2130; }
+.driver-popover.wikiia-tour .driver-popover-description { font-size: .98rem; line-height: 1.45; color: #31333f; }
+.driver-popover.wikiia-tour .driver-popover-progress-text { color: #808495; }
+.driver-popover.wikiia-tour .driver-popover-footer button { border-radius: 8px; padding: 6px 12px;
+  font-size: .9rem; text-shadow: none; }
+.driver-popover.wikiia-tour .driver-popover-next-btn { background: #ff4b4b; border-color: #ff4b4b; color: #fff; }
+"""
 
 
-def _mover_tutorial(paso: int) -> None:
-    st.session_state.tutorial_paso = paso
+def pasos_tour() -> list[dict]:
+    """(selector, título, texto) de cada paso. barra: True = necesita la barra lateral abierta."""
+    def paso(el, titulo, texto_html, barra=None, lado="bottom"):
+        return {"el": el, "titulo": titulo, "texto": texto_html, "barra": barra, "lado": lado}
+
+    casillas = ("Deja marcada esta casilla para no ver los modelos que ya fueron <b>retirados</b>." if PUBLICO else
+                "<b>Solo los que corren en mi PC</b>: los que caben en tu memoria. <b>Ocultar retirados</b>: quita "
+                "los que ya no se pueden usar. <b>Mostrar los que oculté</b>: recupera los que escondiste.")
+    return [
+        paso(None, "👋 ¡Bienvenido a WikiIA!",
+             "La enciclopedia de los modelos de inteligencia artificial del mundo. "
+             "Te muestro en un minuto dónde está cada cosa."),
+        paso(".st-key-metricas", "📊 El resumen",
+             "Mira: aquí ves cuántos <b>modelos, países y empresas</b> cumplen tus filtros. "
+             "Cambia solo cada vez que filtras.", barra=False),
+        paso(".st-key-avisos", "🔔 Entérate de cada modelo nuevo",
+             "Suscríbete aquí y cada lanzamiento te aparece como un evento en <b>tu calendario</b>.", barra=False),
+        paso('[data-testid="stSidebar"]', "🔎 Los filtros",
+             "Esta barra es tu buscador: todo lo que elijas aquí filtra las tablas.", barra=True, lado="right"),
+        paso(".st-key-f_buscar", "Buscar",
+             "Escribe parte del nombre, la empresa o un tema: <i>deepseek</i>, <i>gemma</i>, <i>video</i>, "
+             "<i>código</i>…", barra=True, lado="right"),
+        paso(".st-key-f_origen", "🌍 País y 🏢 Empresa",
+             "Elige uno o varios. El número entre paréntesis es cuántos modelos tiene cada uno. "
+             "Vacío = todos.", barra=True, lado="right"),
+        paso(".st-key-f_caps", "🧩 Sirve para",
+             "Toca lo que necesitas: código, chat, visión, imágenes, video, voz… "
+             "Si eliges varias, salen los modelos que tienen <b>todas</b>.", barra=True, lado="right"),
+        paso(".st-key-f_uso", "☁️ Cómo se usa y 💲 Costo",
+             "<b>API / nube</b>: lo usas en su web, normalmente pagando por uso. "
+             "<b>Local</b>: lo descargas y corre gratis en tu computador.", barra=True, lado="right"),
+        paso(".st-key-f_nivel", "⭐ Potencia, fecha y orden",
+             "Pide una <b>potencia mínima</b> (de ★ básico a ★★★★★ frontera), solo los <b>publicados</b> "
+             "hace poco, y elige el <b>orden</b> de la lista.", barra=True, lado="right"),
+        paso(".st-key-f_casillas", "☑️ Opciones", casillas, barra=True, lado="right"),
+        paso('[data-testid="stTabs"] [role="tablist"]', "🗂️ Las pestañas",
+             "Cambia la vista: <b>por país</b>, el <b>ranking</b> general, <b>por empresa</b>, las "
+             "<b>novedades</b> del mes y las <b>estadísticas</b>.", barra=False),
+        paso('[data-testid="stExpander"]', "🌍 Cada país es una sección",
+             "Ábrela para ver su tabla. Ahí, toca el <b>nombre</b> de un modelo para abrir su página, "
+             "o marca la <b>casilla</b> de la fila para ver su ficha completa.", barra=False),
+        paso(None, "✅ ¡Listo!", "Ya sabes moverte por WikiIA. ¡A explorar!"),
+    ]
 
 
-def _abrir_tutorial() -> None:
-    st.session_state.tutorial_abierto = True
-    st.session_state.tutorial_paso = 0
+def html_tour() -> str:
+    driver_js = (ESTATICOS / "driverjs" / "driver.js.iife.js").read_text(encoding="utf-8")
+    driver_css = (ESTATICOS / "driverjs" / "driver.css").read_text(encoding="utf-8")
+    tour_js = (ESTATICOS / "tour.js").read_text(encoding="utf-8")
+    cfg_tour = json.dumps({"cookie": COOKIE_TOUR, "pasos": pasos_tour()}, ensure_ascii=False)
+    # Los estilos van al <head>: si el visitante usa un filtro iluminado, Streamlit redibuja y este st.html desaparece.
+    # .call(window): driver.js se registra en "this"; así queda en window.driver aunque se ejecute dentro de una función.
+    codigo = (f"var estilo = document.createElement('style'); estilo.textContent = {json.dumps(driver_css + CSS_TOUR)};"
+              f"document.head.appendChild(estilo);\n(function () {{ {driver_js} }}).call(window);\n{tour_js}\n"
+              f"window.__wikiiaIniciarTour({cfg_tour});")
+    # Streamlit limpia st.html con DOMPurify, que borra todo <script> cuyo texto tenga "<b", "</"… (y el código
+    # minificado tiene "a<b"). Por eso va en base64 y un cargador sin "<" lo decodifica (UTF-8) y lo ejecuta.
+    empaquetado = base64.b64encode(codigo.encode("utf-8")).decode("ascii")
+    cargador = ("(function () { var bytes = Uint8Array.from(atob('" + empaquetado + "'), function (c) "
+                "{ return c.charCodeAt(0); }); var s = document.createElement('script'); "
+                "s.text = new TextDecoder().decode(bytes); document.head.appendChild(s); })();")
+    return f"<script>{cargador}</script>"
 
 
-def _cerrar_tutorial() -> None:
-    st.session_state.tutorial_abierto = False
+# ───────────────────────────── avisos ─────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def calendario_publicado(url: str) -> bool:
+    """El botón solo aparece cuando el workflow ya publicó el .ics en GitHub Pages."""
+    try:
+        return requests.head(url, timeout=5, allow_redirects=True).ok
+    except requests.RequestException:
+        return False
 
 
-# Sigue abierto mientras tutorial_abierto sea True: así no se cierra solo al cambiar de paso.
-@st.dialog("📖 Cómo usar WikiIA", width="large", on_dismiss=_cerrar_tutorial)
-def tutorial() -> None:
-    st.html(f"<script>document.cookie = '{COOKIE_TUTORIAL}=1; max-age=31536000; path=/; SameSite=Lax';</script>",
-            unsafe_allow_javascript=True)
-    paso = st.session_state.get("tutorial_paso", 0)
-    ultimo = len(PASOS_TUTORIAL) - 1
-    titulo, cuerpo = PASOS_TUTORIAL[paso]
-    st.progress((paso + 1) / len(PASOS_TUTORIAL), text=f"Paso {paso + 1} de {len(PASOS_TUTORIAL)}")
-    st.subheader(titulo)
-    st.markdown(cuerpo)
-    atras, saltar, siguiente = st.columns(3)
-    # Atrás / Siguiente solo cambian de paso (el diálogo se redibuja solo); Saltar y ¡Empezar! lo cierran.
-    atras.button("← Atrás", disabled=paso == 0, width="stretch", on_click=_mover_tutorial, args=(paso - 1,))
-    if paso < ultimo:
-        if saltar.button("Saltar", width="stretch", on_click=_cerrar_tutorial):
-            st.rerun()
-        siguiente.button("Siguiente →", type="primary", width="stretch", on_click=_mover_tutorial, args=(paso + 1,))
-    elif siguiente.button("¡Empezar!", type="primary", width="stretch", on_click=_cerrar_tutorial):
-        st.rerun()
+def caja_avisos() -> None:
+    if not calendario_publicado(cfg.calendario_url):
+        return
+    urls = enlaces_suscripcion(cfg.calendario_url)
+    with st.container(border=True, key="avisos"):
+        texto_col, botones_col = st.columns([3, 2], vertical_alignment="center")
+        texto_col.markdown("🔔 **¿Quieres enterarte de cada modelo nuevo?**  \n"
+                           "Suscríbete y cada lanzamiento te aparece en tu calendario.")
+        with botones_col:
+            botones = st.columns(3 if cfg.telegram_canal_url else 2)
+            botones[0].link_button("📅 Google Calendar", urls["google"], width="stretch")
+            with botones[1].popover("📋 Otro calendario", width="stretch"):
+                st.markdown("Copia este enlace y agrégalo como **calendario por URL**:")
+                st.code(urls["ics"], language=None)
+                st.caption("iPhone: Ajustes › Calendario › Cuentas › Añadir cuenta › Otra › Añadir calendario "
+                           "suscrito. Outlook: Agregar calendario › Suscribirse desde la web.")
+            if cfg.telegram_canal_url:
+                botones[2].link_button("📱 Telegram", cfg.telegram_canal_url, width="stretch")
 
 
 # ───────────────────────────── app ─────────────────────────────
@@ -478,30 +507,34 @@ if modelos.empty:
     st.stop()
 
 # ---------- barra lateral: filtros ----------
+# Cada grupo tiene key: Streamlit le pone la clase CSS st-key-<key> y el tour guiado la ilumina.
 with st.sidebar:
     st.header("🔎 Filtros")
-    st.button("❓ Ver tutorial", width="stretch", on_click=_abrir_tutorial)
-    buscar =st.text_input("Buscar", placeholder="deepseek, gemma, video, código…")
-    conteo_paises = modelos[modelos["oculto"] == 0].groupby("pais_label").size().sort_values(ascending=False)
-    sel_paises = st.multiselect("País", list(conteo_paises.index), placeholder="Todos los países",
-                                format_func=lambda p: f"{p} ({conteo_paises[p]})")
-    base_emp = modelos[modelos["pais_label"].isin(sel_paises)] if sel_paises else modelos
-    conteo_emp = base_emp.groupby("empresa").size().sort_values(ascending=False)
-    sel_empresas = st.multiselect("Empresa", list(conteo_emp.index), placeholder="Todas las empresas",
-                                  format_func=lambda e: f"{e} ({conteo_emp[e]})")
+    buscar = st.text_input("Buscar", placeholder="deepseek, gemma, video, código…", key="f_buscar")
+    with st.container(key="f_origen"):
+        conteo_paises = modelos[modelos["oculto"] == 0].groupby("pais_label").size().sort_values(ascending=False)
+        sel_paises = st.multiselect("País", list(conteo_paises.index), placeholder="Todos los países",
+                                    format_func=lambda p: f"{p} ({conteo_paises[p]})")
+        base_emp = modelos[modelos["pais_label"].isin(sel_paises)] if sel_paises else modelos
+        conteo_emp = base_emp.groupby("empresa").size().sort_values(ascending=False)
+        sel_empresas = st.multiselect("Empresa", list(conteo_emp.index), placeholder="Todas las empresas",
+                                      format_func=lambda e: f"{e} ({conteo_emp[e]})")
     sel_caps = st.pills("Sirve para (todas las elegidas)", CAPS, selection_mode="multi",
-                        format_func=ETIQUETAS_CAP.get)
-    sel_acceso = st.pills("Cómo se usa", list(ETIQUETA_ACCESO), selection_mode="multi",
-                          format_func=ETIQUETA_ACCESO.get)
-    costo = st.segmented_control("Costo", ["Todos", "Gratis / local", "De pago"], default="Todos")
-    pot_min = st.select_slider("Potencia mínima", options=[1, 2, 3, 4, 5], value=1,
-                               format_func=lambda p: f"{estrellas(p)} {ETIQUETA_POTENCIA[p]}")
-    periodo = st.selectbox("Publicado", ["Cualquier fecha", "Últimos 7 días", "Últimos 30 días",
-                                         "Últimos 90 días", "Último año"])
-    orden = st.selectbox("Ordenar por", list(ORDENES))
-    solo_mi_pc = False if PUBLICO else st.checkbox("🖥️ Solo los que corren en mi PC")
-    ocultar_retirados = st.checkbox("Ocultar los retirados de la API", value=True)
-    ver_ocultos = False if PUBLICO else st.checkbox("Mostrar los que oculté", value=False)
+                        format_func=ETIQUETAS_CAP.get, key="f_caps")
+    with st.container(key="f_uso"):
+        sel_acceso = st.pills("Cómo se usa", list(ETIQUETA_ACCESO), selection_mode="multi",
+                              format_func=ETIQUETA_ACCESO.get)
+        costo = st.segmented_control("Costo", ["Todos", "Gratis / local", "De pago"], default="Todos")
+    with st.container(key="f_nivel"):
+        pot_min = st.select_slider("Potencia mínima", options=[1, 2, 3, 4, 5], value=1,
+                                   format_func=lambda p: f"{estrellas(p)} {ETIQUETA_POTENCIA[p]}")
+        periodo = st.selectbox("Publicado", ["Cualquier fecha", "Últimos 7 días", "Últimos 30 días",
+                                             "Últimos 90 días", "Último año"])
+        orden = st.selectbox("Ordenar por", list(ORDENES))
+    with st.container(key="f_casillas"):
+        solo_mi_pc = False if PUBLICO else st.checkbox("🖥️ Solo los que corren en mi PC")
+        ocultar_retirados = st.checkbox("Ocultar los retirados de la API", value=True)
+        ver_ocultos = False if PUBLICO else st.checkbox("Mostrar los que oculté", value=False)
 
     st.divider()
     if not PUBLICO:
@@ -509,13 +542,6 @@ with st.sidebar:
         st.caption(f"**Motor de IA:** Groq {'✅' if llm['groq'] else '❌'} · Ollama {'✅' if llm['ollama'] else '❌'}")
     if not ejecuciones.empty:
         st.caption(f"**Última actualización:** {str(ejecuciones.iloc[0]['fin'])[:16].replace('T', ' ')}")
-
-# Primera visita: sin la cookie del tutorial y aún no mostrado en esta sesión. Después, solo con "❓ Ver tutorial".
-if not st.session_state.get("tutorial_mostrado") and st.context.cookies.get(COOKIE_TUTORIAL) != "1":
-    st.session_state.tutorial_mostrado = True
-    _abrir_tutorial()
-if st.session_state.get("tutorial_abierto"):
-    tutorial()
 
 df = modelos.copy()
 if not ver_ocultos:
@@ -553,13 +579,14 @@ st.title("🌐 WikiIA")
 st.caption("La enciclopedia de los modelos de inteligencia artificial del mundo · se actualiza sola desde "
            "OpenRouter y Hugging Face · las fichas las investiga Groq / Ollama")
 hace_7 = pd.Timestamp(datetime.now() - timedelta(days=7))
-m1, m2, m3, m4, m5 = st.columns(5)
+m1, m2, m3, m4, m5 = st.container(key="metricas").columns(5)
 m1.metric("Modelos", f"{len(df):,}", help=f"{len(modelos):,} en total en la base")
 m2.metric("Países", df["pais_codigo"].nunique())
 m3.metric("Empresas", df["empresa_id"].nunique())
 m4.metric("Publicados esta semana", int((df["fecha_dt"] >= hace_7).sum()))
 m5.metric("Fichas investigadas", f"{df['investigado'].mean() * 100:.0f}%" if len(df) else "—",
           help="Porcentaje de modelos con ficha hecha por IA o verificada")
+caja_avisos()
 # Las alertas "sin leer" son del dueño de la app: en la versión pública no se muestran como pendientes.
 sin_leer = int((alertas["leida"] == 0).sum()) if not alertas.empty and not PUBLICO else 0
 if sin_leer:
@@ -715,6 +742,12 @@ with tab_est:
                 tooltip=[alt.Tooltip("yearmonth(mes):T", title="Mes"), alt.Tooltip("modelos:Q", title="Modelos")],
             ).properties(height=260),
             width="stretch")
+
+# ---------- tour guiado (primera visita) ----------
+# Se envía una vez por sesión si el navegador no trae la cookie; tour.js la vuelve a revisar antes de empezar.
+if not st.session_state.get("tour_enviado") and st.context.cookies.get(COOKIE_TOUR) != "1":
+    st.session_state.tour_enviado = True
+    st.html(html_tour(), unsafe_allow_javascript=True)
 
 # ---------- configuración (solo en tu PC) ----------
 if PUBLICO:

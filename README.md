@@ -60,9 +60,33 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
 .venv/bin/python -m wikiia estado
 ```
 
+## En internet
+
+| Qué | Dónde | Cómo se actualiza |
+|---|---|---|
+| La app (solo lectura) | Streamlit Community Cloud | Sola, con cada `git push` |
+| Calendario de lanzamientos (`wikiia.ics`) | GitHub Pages | Workflow `.github/workflows/calendario.yml` en cada `git push` que cambie la base o el código |
+
+- **Modo público**: en Streamlit Cloud la app se pone sola en solo lectura (sin Configuración, investigar ni
+  editar; ahí no hay Ollama ni `.env`). Los datos se investigan en tu PC y se suben con `git push`.
+  `WIKIIA_PUBLICO=1` lo fuerza en tu PC para probarlo.
+- **Tour guiado**: la primera vez que alguien entra, un recorrido ilumina cada parte de la pantalla
+  (driver.js, MIT, en `wikiia/static/driverjs`). Una cookie recuerda que ya lo vio; para verlo de nuevo, abre
+  la app en una ventana de incógnito.
+- **Avisos**: el recuadro "¿Quieres enterarte?" aparece cuando el calendario ya está publicado. Con
+  `TELEGRAM_CANAL_URL` aparece también el botón del canal de Telegram.
+- **Calendario a mano**: `.venv/bin/python -m wikiia.calendario --carpeta _site`
+
+Para que el workflow pueda publicar (una sola vez): en GitHub, **Settings → Pages → Build and deployment →
+Source: GitHub Actions**.
+
+## Versiones
+
+Cada lote de cambios se marca con un tag (`git tag -a v1.0.2 -m "..."` y `git push origin v1.0.2`).
+
 ## Personalizar
 
-- **`.env`**: API de Groq, modelo de Ollama, Telegram (ver `.env.example`).
+- **`.env`**: API de Groq, modelo de Ollama, Telegram, calendario (ver `.env.example`).
 - **`data/empresas.json`**: agrega empresas y sus organizaciones de Hugging Face / prefijos de OpenRouter.
 - **`data/paises.json`**: países y su nota de privacidad.
 - **`data/manuales.json`**: servicios que no aparecen en las fuentes automáticas.

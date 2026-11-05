@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
+import re
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -79,7 +81,6 @@ COLUMNAS_TABLA = {
     "acceso_label": st.column_config.TextColumn("Cómo se usa"),
     "precio": st.column_config.TextColumn("Precio USD / 1M tokens", help="Entrada / salida, según OpenRouter"),
     "fecha_dt": st.column_config.DateColumn("Publicado", format="YYYY-MM-DD"),
-    "estado": st.column_config.TextColumn("Ficha"),
 }
 
 
@@ -124,8 +125,6 @@ def cargar_datos(marca: tuple):  # 'marca' cambia cuando la base cambia → reca
                   f"#{quote(str(f['nombre']), safe='')}", axis=1)
     modelos["fecha_dt"] = pd.to_datetime(modelos["fecha"], errors="coerce")
     modelos["mi_pc"] = modelos.apply(lambda f: requisitos_local(f, perfil)[1], axis=1)
-    modelos["estado"] = modelos.apply(
-        lambda f: "✔ verificada" if f["verificado"] else "🧠 por IA" if f["investigado"] else "⏳ pendiente", axis=1)
     return modelos, empresas, paises, alertas, ejecuciones, linea_base
 
 
@@ -370,9 +369,45 @@ def editar_ficha(f: pd.Series, clave: str) -> None:
             refrescar()
 
 
+AYUDA_TABLA = ("☑️ **Marca la casilla** de la izquierda para ver la ficha completa del modelo (links, cómo "
+               "descargarlo y en qué motores corre). Toca su **nombre** para abrir su página.")
+CSS_AVISO_FICHA = """<style>
+@keyframes wikiia-aparece { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes wikiia-rebote { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+.wikiia-aviso-ficha { display: flex; align-items: center; gap: .6rem; padding: .7rem 1rem; margin: .5rem 0 .25rem;
+  border-radius: 12px; border: 1px solid rgba(255, 75, 75, .5); font-weight: 600;
+  background: linear-gradient(90deg, rgba(255, 75, 75, .18), rgba(255, 75, 75, .03));
+  animation: wikiia-aparece .45s ease-out both; }
+.wikiia-aviso-ficha .flecha { display: inline-block; font-size: 1.3rem; animation: wikiia-rebote .9s ease-in-out 4; }
+.wikiia-aviso-ficha .nombre { font-weight: 700; }
+</style>"""
+# Destello alrededor de la ficha recién abierta (solo cuando cambia la selección).
+CSS_DESTELLO = """<style>
+@keyframes wikiia-destello { 0% { box-shadow: 0 0 0 0 rgba(255, 75, 75, .6); }
+  100% { box-shadow: 0 0 0 16px rgba(255, 75, 75, 0); } }
+.st-key-CAJA { border-radius: 12px; scroll-margin-top: 90px; animation: wikiia-destello 1.1s ease-out 2; }
+</style>"""
+
+
 def tabla_con_ficha(df: pd.DataFrame, clave: str, columnas: list[str], alto: int | None = None) -> None:
     fila = tabla(df, clave, columnas, alto)
-    if fila is not None:
+    vista = f"ficha_vista_{clave}"
+    if fila is None:
+        st.session_state.pop(vista, None)
+        return
+    nueva = st.session_state.get(vista) != fila["id"]
+    st.session_state[vista] = fila["id"]
+    caja = "ficha_" + re.sub(r"[^A-Za-z0-9_-]", "_", clave)  # clase CSS st-key-<caja>
+    with st.container(key=caja):
+        st.html(CSS_AVISO_FICHA + f'<div class="wikiia-aviso-ficha"><span class="flecha">👇</span>'
+                f'<span>Observa la ficha de <span class="nombre">{html.escape(str(fila["nombre"]))}</span></span></div>')
+        if nueva:
+            # Al elegir otro modelo: destello en la ficha y la pantalla baja hasta ella (sin "<" en el script:
+            # DOMPurify borra los <script> que lo tengan).
+            st.html(CSS_DESTELLO.replace("CAJA", caja)
+                    + "<script>setTimeout(function () { var e = document.querySelector('.st-key-" + caja
+                    + "'); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);</script>",
+                    unsafe_allow_javascript=True)
         mostrar_ficha(fila, clave)
 
 
@@ -598,7 +633,7 @@ tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_admin = st.tabs(nombres_tabs
 
 # ---------- por país ----------
 with tab_pais:
-    st.caption("Toca una fila para ver la ficha completa del modelo.")
+    st.caption(AYUDA_TABLA)
     orden_paises = df.groupby("pais_label").size().sort_values(ascending=False)
     for pais_label, n in orden_paises.items():
         grupo = df[df["pais_label"] == pais_label]
@@ -612,14 +647,14 @@ with tab_pais:
                 st.warning(nota, icon="⚠️")
             st.markdown(" · ".join(f"**{e}** ({c})" for e, c in grupo["empresa"].value_counts().items()))
             tabla_con_ficha(grupo, f"pais_{grupo['pais_codigo'].iloc[0]}",
-                            ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado"])
+                            ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- ranking ----------
 with tab_rank:
-    st.caption(f"Todos los modelos que cumplen los filtros, ordenados por: **{orden}**. Toca una fila para ver la ficha.")
+    st.caption(f"Todos los modelos que cumplen los filtros, ordenados por: **{orden}**. " + AYUDA_TABLA)
     tabla_con_ficha(df, "ranking",
                     ["pais_label", "modelo", "estrellas", "sirve_para", "acceso_label", "precio",
-                     "fecha_dt", "estado"], alto=560)
+                     "fecha_dt"], alto=560)
 
 # ---------- por empresa ----------
 with tab_emp:
@@ -644,7 +679,7 @@ with tab_emp:
         if texto(fila_emp["empresa_web"]):
             st.link_button(f"🔗 Web de {fila_emp['empresa']}", fila_emp["empresa_web"])
         tabla_con_ficha(grupo, f"empresa_{empresa_id}",
-                        ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado"])
+                        ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- novedades ----------
 with tab_nov:

@@ -45,7 +45,7 @@
   {"id": "shengshu", "nombre": "Shengshu (Vidu)", "pais": "CN", "web": "https://www.vidu.com", "or": [], "hf": []},
   {"id": "yandex", "nombre": "Yandex (Alice AI)", "pais": "RU", "web": "https://ya.ru/ai", "or": [], "hf": ["yandex"], "chat": "https://alice.yandex.ru"},
   {"id": "sber", "nombre": "Sber (GigaChat / Kandinsky)", "pais": "RU", "web": "https://giga.chat", "or": [], "hf": ["ai-sage", "kandinskylab"], "chat": "https://giga.chat", "api": "https://developers.sber.ru/portal/products/gigachat-api"},
-  {"id": "tbank", "nombre": "T-Bank (T-Tech)", "pais": "RU", "web": "https://www.tbank.ru", "or": [], "hf": ["t-tech"]},
+  {"id": "tbank", "nombre": "T-Bank (T-Tech)", "pais": "RU", "web": "https://t-tech.dev", "or": [], "hf": ["t-tech"]},
   {"id": "bfl", "nombre": "Black Forest Labs (FLUX)", "pais": "DE", "web": "https://bfl.ai", "or": ["black-forest-labs"], "hf": ["black-forest-labs"]},
   {"id": "alephalpha", "nombre": "Aleph Alpha", "pais": "DE", "web": "https://aleph-alpha.com", "or": [], "hf": ["Aleph-Alpha"]},
   {"id": "mistral", "nombre": "Mistral AI", "pais": "FR", "web": "https://mistral.ai", "or": ["mistralai", "mistral"], "hf": ["mistralai"], "chat": "https://chat.mistral.ai", "api": "https://docs.mistral.ai"},

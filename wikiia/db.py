@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS meta (
     clave TEXT PRIMARY KEY,
     valor TEXT
 );
+CREATE TABLE IF NOT EXISTS enlaces_estado (     -- lo llena wikiia/enlaces.py
+    url TEXT PRIMARY KEY,
+    ok INTEGER,                         -- 1 abre · 0 roto · NULL no se pudo confirmar
+    codigo INTEGER,                     -- código HTTP final (NULL si ni siquiera conectó)
+    detalle TEXT,
+    revisado TEXT
+);
 """
 
 # Campos JSON que se combinan (no se reemplazan) al fusionar fuentes.

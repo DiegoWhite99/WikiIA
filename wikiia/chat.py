@@ -5,20 +5,52 @@ La IA no responde de memoria: llama a la herramienta `buscar_modelos`, que filtr
 WikiIA (país, empresa, capacidades, RAM disponible, precio…), y redacta la recomendación con esos datos.
 Cuando pregunta, termina con "OPCIONES: a | b | c" y la app las muestra como botones.
 
-Sobre la clave: la app la guarda solo en la sesión del navegador (st.session_state). No se escribe en
-disco, ni en la base, ni en la caché de Streamlit, y solo viaja a api.groq.com por HTTPS.
+Sobre la clave: en la app vive en la sesión (st.session_state) y, si la persona tiene cuenta, cifrada
+en PostgreSQL (wikiia/cuentas.py). Nunca va a disco, a la base SQLite ni a la caché de Streamlit, y solo
+viaja a api.groq.com por HTTPS.
+
+Cupo gratis de Groq: unos 8 000 tokens por minuto por modelo. Por eso la guía usa un modelo moderado
+(gpt-oss-20b), manda resultados cortos y, si Groq pide una pausa, espera unos segundos o pasa al otro
+modelo, que tiene su propio cupo. Los errores de Groq nunca se muestran tal cual: se traducen a un
+mensaje que diga qué hacer (esperar, revisar la clave, empezar de nuevo…).
 """
 from __future__ import annotations
 
 import json
+import logging
+import math
 import re
+import time
 import unicodedata
+from typing import Callable
 
 import pandas as pd
 import requests
 
-from .heuristicas import ETIQUETA_ACCESO, ETIQUETAS_CAP, estrellas, num, requisitos_local, texto
+from .heuristicas import ETIQUETA_ACCESO, ETIQUETAS_CAP, num, requisitos_local, texto
 from .llm import GROQ_URL
+
+log = logging.getLogger(__name__)
+
+# El primero es el de config (GROQ_MODELO_GUIA); el resto son respaldos con su propio cupo por minuto.
+MODELOS_RESPALDO = ("openai/gpt-oss-20b", "openai/gpt-oss-120b")
+MAX_MENSAJES = 10       # historial que se le manda a Groq
+MAX_RONDAS = 3          # búsquedas por respuesta
+LIMITE_RESULTADOS = 5   # modelos por búsqueda (máx. 8)
+ESPERA_MAXIMA = 20      # segundos que vale la pena esperar si Groq pide una pausa
+
+# Lo que ve la persona cuando algo falla (nunca el error crudo de Groq).
+MSJ_CLAVE = ("🔑 **Verifica tu clave de Groq:** no funcionó, puede que la hayas borrado o que no esté completa. "
+             "Revísala en [console.groq.com/keys](https://console.groq.com/keys) y pégala de nuevo.")
+MSJ_PAUSA = ("⏳ **Espera un momento:** el plan gratis de Groq deja hacer pocas preguntas por minuto y ya llegaste "
+             "al tope. En unos {s} segundos vuelve a enviar tu mensaje.")
+MSJ_CUPO_DIA = ("🌙 **Por hoy se acabó el cupo gratis de tu cuenta de Groq.** Se renueva solo; vuelve a intentarlo "
+                "en unas horas.")
+MSJ_CONEXION = "📡 **No pude comunicarme con Groq.** Revisa tu conexión a internet y vuelve a intentarlo."
+MSJ_OCUPADO = "🛠️ **Groq está ocupado en este momento.** Espera un momento y vuelve a enviar tu mensaje."
+MSJ_LARGO = ("📜 **La conversación ya quedó muy larga** para el plan gratis. Toca «🔄 Empezar de nuevo» y "
+             "cuéntame en un solo mensaje lo que necesitas.")
+MSJ_RARO = "😅 **No logré armar la respuesta esta vez.** Intenta escribirlo con otras palabras."
 
 CAPACIDADES = {"codigo": "cap_codigo", "investigacion": "cap_investigacion", "chat": "cap_chat",
                "vision": "cap_vision", "imagenes": "cap_imagen", "video": "cap_video",
@@ -48,7 +80,7 @@ HERRAMIENTA = {
                            "description": "RAM del computador del usuario, si la dice: solo modelos locales que caben."},
                 "vram_gb": {"type": "number", "description": "Memoria de la tarjeta gráfica (GPU), si la dice."},
                 "orden": {"type": "string", "enum": ["potencia", "recientes", "baratos"]},
-                "limite": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Cuántos devolver (6 por defecto)."},
+                "limite": {"type": "integer", "minimum": 1, "maximum": 8, "description": "Cuántos devolver (5 por defecto)."},
             },
         },
     },
@@ -118,11 +150,15 @@ def separar_opciones(mensaje: str) -> tuple[str, list[str]]:
 
 
 class ErrorChat(Exception):
-    pass
+    """Falla al hablar con Groq. str(e) es un mensaje amable, listo para mostrar."""
 
 
 class ClaveInvalida(ErrorChat):
-    pass
+    """La clave de Groq no sirve: hay que pedir otra."""
+
+
+class _MuyLargo(Exception):
+    """Groq respondió 413: hay que recortar la conversación."""
 
 
 def _normal(valor) -> str:
@@ -180,19 +216,19 @@ def buscar_modelos(df: pd.DataFrame, args: dict) -> dict:
         d = d.sort_values(["precio_salida", "potencia"], ascending=[True, False], na_position="last")
     else:
         d = d.sort_values(["potencia", "investigado", "fecha_dt"], ascending=[False, False, False], na_position="last")
-    limite = max(1, min(12, int(num(args.get("limite")) or 6)))  # pocos: el plan gratis de Groq limita tokens
+    # Pocos y cortos: el plan gratis de Groq cuenta tokens por minuto.
+    limite = max(1, min(8, int(num(args.get("limite")) or LIMITE_RESULTADOS)))
     modelos = []
     for _, f in d.head(limite).iterrows():
         modelo = {
             "nombre": f["nombre"], "empresa": f["empresa"], "pais": f["pais"],
-            "potencia": f"{estrellas(f['potencia'])} ({int(f['potencia'])}/5)",
+            "potencia": f"{int(f['potencia'])}/5",
             "sirve_para": [ETIQUETAS_CAP[c].split(" ", 1)[1] for c in ETIQUETAS_CAP if f[c]],
-            "como_se_usa": ETIQUETA_ACCESO.get(f["acceso"], f["acceso"]),
-            "precio_usd_por_millon_tokens": f["precio"],
+            "uso": ETIQUETA_ACCESO.get(f["acceso"], f["acceso"]),
+            "precio_usd_1M": f["precio"] if f["acceso"] != "local" else None,
             "publicado": f["fecha_dt"].date().isoformat() if pd.notna(f["fecha_dt"]) else None,
-            "parametros_miles_de_millones": num(f["parametros_b"]) or None,
-            "contexto_tokens": int(num(f["contexto"])) if num(f["contexto"]) else None,
-            "resumen": texto(f["resumen"])[:240] or None,
+            "parametros_b": num(f["parametros_b"]) or None,
+            "resumen": texto(f["resumen"])[:150] or None,
             "enlace": f["enlace"],
         }
         if perfil:
@@ -202,64 +238,145 @@ def buscar_modelos(df: pd.DataFrame, args: dict) -> dict:
     return {"total_encontrados": int(len(d)), "mostrando": len(modelos), "modelos": modelos}
 
 
-def _llamar(clave: str, modelo: str, mensajes: list[dict], herramientas: bool) -> dict:
-    cuerpo = {"model": modelo, "messages": mensajes, "temperature": 0.3, "max_completion_tokens": 1500}
-    if herramientas:
-        cuerpo["tools"], cuerpo["tool_choice"] = [HERRAMIENTA], "auto"
-    if "gpt-oss" in modelo:
-        cuerpo["reasoning_effort"] = "low"
+def _segundos_espera(r: requests.Response, mensaje: str) -> float:
+    """Cuánto pide esperar Groq (cabecera retry-after o el texto «try again in 1m2.5s»)."""
     try:
-        r = requests.post(f"{GROQ_URL}/chat/completions", json=cuerpo, timeout=90,
-                          headers={"Authorization": f"Bearer {clave}"})
-    except requests.RequestException as e:
-        raise ErrorChat(f"No hubo conexión con Groq ({e.__class__.__name__}). Intenta de nuevo.") from None
-    if r.status_code == 401:
-        raise ClaveInvalida("Tu clave de Groq no es válida o fue borrada. Pega una nueva.")
-    if r.status_code == 429:
-        espera = r.headers.get("retry-after", "unos")
-        raise ErrorChat(f"Llegaste al límite gratis de tu cuenta de Groq. Espera {espera} segundos y vuelve a preguntar.")
-    if r.status_code == 413:
-        raise ErrorChat("La conversación quedó muy larga para el plan gratis. Pulsa «Borrar conversación».")
-    if r.status_code >= 400:
-        raise ErrorChat(f"Groq respondió {r.status_code}. Intenta de nuevo en un momento.")
-    return r.json()
+        return float(r.headers.get("retry-after", ""))
+    except ValueError:
+        pass
+    m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", mensaje)
+    if m:
+        return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))
+    return 30.0
 
 
-def responder(clave: str, modelo: str, historial: list[dict], df: pd.DataFrame) -> str:
-    """historial: [{'role': 'user'|'assistant', 'content': str}]. Devuelve la respuesta en markdown."""
-    mensajes = [{"role": "system", "content": SISTEMA}]
-    mensajes += [{"role": m["role"], "content": m["content"]} for m in historial[-14:]]
-    for _ in range(4):  # la IA puede buscar varias veces antes de responder
-        mensaje = _llamar(clave, modelo, mensajes, herramientas=True)["choices"][0]["message"]
-        llamadas = mensaje.get("tool_calls") or []
-        if not llamadas:
-            return (mensaje.get("content") or "").strip() or "No encontré una respuesta. ¿Puedes preguntarlo de otra forma?"
-        mensajes.append({"role": "assistant", "content": mensaje.get("content"), "tool_calls": llamadas})
-        for llamada in llamadas:
+def _completar(clave: str, modelos: list[str], mensajes: list[dict], herramientas: bool,
+               avisar: Callable[[str], None] | None) -> tuple[dict, str]:
+    """Pide una respuesta a Groq probando los modelos en orden. Devuelve (mensaje, modelo que respondió).
+
+    Si algo falla, reintenta lo que tiene arreglo (pausa corta, herramienta mal llamada, Groq saturado)
+    y, si no, lanza ErrorChat con un mensaje amable.
+    """
+    error_final, espera_menor = ErrorChat(MSJ_OCUPADO), None
+    for modelo in modelos:
+        cuerpo = {"model": modelo, "messages": mensajes, "temperature": 0.3, "max_completion_tokens": 1000}
+        if herramientas:
+            cuerpo["tools"], cuerpo["tool_choice"] = [HERRAMIENTA], "auto"
+        if "gpt-oss" in modelo:
+            cuerpo["reasoning_effort"] = "low"
+        reintentos = 0
+        while True:
             try:
-                args = json.loads(llamada["function"].get("arguments") or "{}")
+                r = requests.post(f"{GROQ_URL}/chat/completions", json=cuerpo, timeout=60,
+                                  headers={"Authorization": f"Bearer {clave}"})
+            except requests.RequestException as e:
+                log.warning("Groq sin conexión (%s)", e.__class__.__name__)
+                raise ErrorChat(MSJ_CONEXION) from None
+            if r.ok:
+                return r.json()["choices"][0]["message"], modelo
+            try:
+                error = r.json().get("error") or {}
             except ValueError:
-                args = {}
-            resultado = (buscar_modelos(df, args) if llamada["function"]["name"] == "buscar_modelos"
-                         else {"error": "herramienta desconocida"})
-            mensajes.append({"role": "tool", "tool_call_id": llamada["id"],
-                             "content": json.dumps(resultado, ensure_ascii=False, default=str)})
-    final = _llamar(clave, modelo, mensajes, herramientas=False)["choices"][0]["message"]
-    return (final.get("content") or "").strip()
+                error = {}
+            texto_error, codigo = str(error.get("message", "")), str(error.get("code", ""))
+            log.warning("Groq %s respondió %s (%s)", modelo, r.status_code, codigo or "sin código")
+            if r.status_code == 401:
+                raise ClaveInvalida(MSJ_CLAVE)
+            if r.status_code == 413 or codigo == "context_length_exceeded":
+                raise _MuyLargo()
+            if r.status_code == 429:
+                espera = _segundos_espera(r, texto_error)
+                por_dia = "per day" in texto_error
+                if not por_dia and espera <= ESPERA_MAXIMA and reintentos == 0:
+                    reintentos += 1
+                    if avisar:
+                        avisar(f"Groq pidió una pausa corta; sigo en {math.ceil(espera)} s…")
+                    time.sleep(espera + 0.5)
+                    continue
+                if por_dia:
+                    error_final = ErrorChat(MSJ_CUPO_DIA)
+                else:  # se avisa la espera más corta entre los modelos probados
+                    espera_menor = min(espera, espera_menor or espera)
+                    error_final = ErrorChat(MSJ_PAUSA.format(s=max(5, math.ceil(espera_menor))))
+                break  # el siguiente modelo tiene su propio cupo
+            if r.status_code >= 500 or r.status_code == 498:  # 498 = capacidad agotada
+                if reintentos == 0:
+                    reintentos += 1
+                    time.sleep(2)
+                    continue
+                error_final = ErrorChat(MSJ_OCUPADO)
+                break
+            if r.status_code == 400 and reintentos == 0 and codigo in (
+                    "tool_use_failed", "json_validate_failed", "output_parse_failed"):
+                reintentos += 1  # la IA armó mal la búsqueda: casi siempre sale bien a la segunda
+                cuerpo["temperature"] = 0.1
+                continue
+            error_final = ErrorChat(MSJ_RARO)  # 400/404: modelo retirado o petición rara → el siguiente
+            break
+    raise error_final
+
+
+def _recortar(historial: list[dict], cuantos: int) -> list[dict]:
+    """Los últimos mensajes; las respuestas largas viejas se acortan para no gastar cupo."""
+    ultimos = [{"role": m["role"], "content": m["content"]} for m in historial[-cuantos:]]
+    for m in ultimos[:-2]:
+        if m["role"] == "assistant" and len(m["content"]) > 700:
+            m["content"] = m["content"][:700] + "…"
+    return ultimos
+
+
+def responder(clave: str, modelo: str, historial: list[dict], df: pd.DataFrame,
+              avisar: Callable[[str], None] | None = None) -> str:
+    """historial: [{'role': 'user'|'assistant', 'content': str}]. Devuelve la respuesta en markdown.
+
+    `modelo` es el preferido; si se queda sin cupo se usan los de MODELOS_RESPALDO.
+    """
+    modelos = [modelo] + [m for m in MODELOS_RESPALDO if m != modelo]
+    for cuantos in (MAX_MENSAJES, 4):  # si Groq dice que es muy larga, se reintenta con menos historial
+        mensajes = [{"role": "system", "content": SISTEMA}] + _recortar(historial, cuantos)
+        try:
+            for _ in range(MAX_RONDAS):  # la IA puede buscar varias veces antes de responder
+                mensaje, usado = _completar(clave, modelos, mensajes, True, avisar)
+                modelos = modelos[modelos.index(usado):]  # si uno se quedó sin cupo, no se vuelve a probar
+                llamadas = mensaje.get("tool_calls") or []
+                if not llamadas:
+                    return (mensaje.get("content") or "").strip() or MSJ_RARO
+                mensajes.append({"role": "assistant", "content": mensaje.get("content"), "tool_calls": llamadas})
+                for llamada in llamadas:
+                    try:
+                        args = json.loads(llamada["function"].get("arguments") or "{}")
+                    except ValueError:
+                        args = {}
+                    resultado = (buscar_modelos(df, args) if llamada["function"]["name"] == "buscar_modelos"
+                                 else {"error": "herramienta desconocida"})
+                    mensajes.append({"role": "tool", "tool_call_id": llamada["id"],
+                                     "content": json.dumps(resultado, ensure_ascii=False, default=str,
+                                                           separators=(",", ":"))})
+            final, _ = _completar(clave, modelos, mensajes, False, avisar)
+            return (final.get("content") or "").strip() or MSJ_RARO
+        except _MuyLargo:
+            continue
+    raise ErrorChat(MSJ_LARGO)
 
 
 def validar_clave(clave: str, modelo: str) -> tuple[bool, str]:
-    """Comprueba la clave sin gastar tokens (lista los modelos de Groq)."""
+    """Comprueba la clave sin gastar tokens (lista los modelos de Groq). Devuelve (ok, mensaje amable)."""
     if not clave.startswith("gsk_") or len(clave) < 20:
-        return False, "Esa no parece una clave de Groq: debe empezar por «gsk_»."
+        return False, "🔑 Esa no parece una clave de Groq: debe empezar por «gsk_». Cópiala completa."
     try:
         r = requests.get(f"{GROQ_URL}/models", timeout=15, headers={"Authorization": f"Bearer {clave}"})
     except requests.RequestException:
-        return False, "No hubo conexión con Groq. Intenta de nuevo."
+        return False, MSJ_CONEXION
     if r.status_code == 401:
-        return False, "Groq dice que esa clave no es válida. Revisa que la copiaste completa."
+        return False, ("🔑 **Verifica tu clave:** Groq no la reconoce. Revisa que la copiaste completa o crea una "
+                       "nueva en [console.groq.com/keys](https://console.groq.com/keys).")
+    if r.status_code == 429:
+        return False, "⏳ **Espera un momento:** Groq recibió muchas peticiones seguidas. Intenta en unos segundos."
     if r.status_code != 200:
-        return False, f"Groq respondió {r.status_code}. Intenta de nuevo en un momento."
-    if modelo not in {m.get("id") for m in r.json().get("data", [])}:
-        return False, f"Tu cuenta de Groq no tiene el modelo {modelo}."
+        log.warning("Groq /models respondió %s", r.status_code)
+        return False, MSJ_OCUPADO
+    disponibles = {m.get("id") for m in r.json().get("data", [])}
+    if not disponibles & ({modelo} | set(MODELOS_RESPALDO)):
+        return False, ("😕 Tu cuenta de Groq no tiene disponibles los modelos que usa la guía. Revisa en "
+                       "[console.groq.com](https://console.groq.com) que tu cuenta esté activa.")
     return True, "ok"

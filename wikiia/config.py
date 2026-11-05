@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -26,11 +27,23 @@ def _env(nombre: str, defecto: str = "") -> str:
     return (os.getenv(nombre) or defecto).strip()
 
 
+def _secreto(nombre: str) -> str:
+    """Variable del .env o, en Streamlit Cloud, de Settings → Secrets."""
+    valor = _env(nombre)
+    if not valor and "streamlit" in sys.modules:  # la línea de comandos no carga streamlit por esto
+        try:
+            valor = str(sys.modules["streamlit"].secrets.get(nombre, "")).strip()
+        except Exception:  # noqa: BLE001 - no hay secrets.toml
+            valor = ""
+    return valor
+
+
 @dataclass(frozen=True)
 class Config:
     llm_proveedor: str
     groq_api_key: str
-    groq_modelo: str
+    groq_modelo: str          # el que investiga las fichas
+    groq_modelo_guia: str     # el del chat de la guía: uno moderado, que gasta menos cupo gratis
     ollama_url: str
     ollama_modelo: str
     telegram_token: str
@@ -39,6 +52,8 @@ class Config:
     calendario_url: str       # .ics publicado en GitHub Pages por el workflow
     telegram_canal_url: str   # enlace público del canal (t.me/...) para que la gente se una
     app_url: str              # la app publicada (se enlaza desde la página del calendario)
+    database_url: str         # PostgreSQL de las cuentas (correo + contraseña); vacío = sin cuentas
+    secreto: str              # WIKIIA_SECRETO: cifra las claves de Groq guardadas en las cuentas
 
 
 def es_publico() -> bool:
@@ -67,6 +82,7 @@ def cargar_config() -> Config:
         llm_proveedor=proveedor,
         groq_api_key=_env("GROQ_API_KEY"),
         groq_modelo=_env("GROQ_MODELO", "openai/gpt-oss-120b"),
+        groq_modelo_guia=_env("GROQ_MODELO_GUIA", "openai/gpt-oss-20b"),
         ollama_url=_env("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
         ollama_modelo=_env("OLLAMA_MODELO", "qwen2.5:3b"),
         telegram_token=_env("TELEGRAM_BOT_TOKEN"),
@@ -75,6 +91,8 @@ def cargar_config() -> Config:
         calendario_url=_env("WIKIIA_CALENDARIO_URL", "https://diegowhite99.github.io/WikiIA/wikiia.ics"),
         telegram_canal_url=_env("TELEGRAM_CANAL_URL"),
         app_url=_env("WIKIIA_APP_URL", "https://wikiia-bl3pec2wdfzvcxdg9jq5aw.streamlit.app/"),
+        database_url=_secreto("DATABASE_URL"),
+        secreto=_secreto("WIKIIA_SECRETO"),
     )
 
 

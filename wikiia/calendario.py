@@ -15,8 +15,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import db
+from .enlaces import rotos as enlaces_rotos
 from .config import cargar_config
-from .heuristicas import ETIQUETA_ACCESO, enlace_principal, estrellas, texto
+from .heuristicas import ETIQUETA_ACCESO, acceso_real, enlace_principal, estrellas, texto
 
 CONSULTA = (
     "SELECT m.*, e.nombre AS empresa, e.web AS empresa_web, e.chat_url, p.bandera, p.nombre AS pais "
@@ -48,12 +49,12 @@ def _plegar(linea: str) -> str:
     return "\r\n ".join(partes)
 
 
-def _evento(f, sello: str) -> list[str]:
+def _evento(f, sello: str, rotos: frozenset[str]) -> list[str]:
     dia = date.fromisoformat(f["fecha"][:10])
-    enlace = enlace_principal(f) or ""
+    enlace = enlace_principal(f, rotos) or ""
     empresa = texto(f["empresa"]) or f["empresa_id"]
     lineas_desc = [f"{texto(f['bandera'])} {texto(f['pais']) or 'Sin país'} · {empresa}".strip(),
-                   f"{estrellas(f['potencia'])} · {ETIQUETA_ACCESO.get(f['acceso'], '')}"]
+                   f"{estrellas(f['potencia'])} · {ETIQUETA_ACCESO.get(acceso_real(f, rotos), '')}"]
     if texto(f["resumen"]):
         lineas_desc += ["", f["resumen"]]
     if enlace:
@@ -74,7 +75,7 @@ def _evento(f, sello: str) -> list[str]:
     return evento + ["END:VEVENT"]
 
 
-def generar_ics(filas) -> str:
+def generar_ics(filas, rotos: frozenset[str] = frozenset()) -> str:
     sello = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     lineas = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//WikiIA//Lanzamientos de modelos de IA//ES",
@@ -84,18 +85,18 @@ def generar_ics(filas) -> str:
         "REFRESH-INTERVAL;VALUE=DURATION:PT6H", "X-PUBLISHED-TTL:PT6H",
     ]
     for f in filas:
-        lineas += _evento(f, sello)
+        lineas += _evento(f, sello, rotos)
     lineas.append("END:VCALENDAR")
     return "\r\n".join(_plegar(l) for l in lineas) + "\r\n"
 
 
-def generar_pagina(filas, cfg) -> str:
+def generar_pagina(filas, cfg, rotos: frozenset[str] = frozenset()) -> str:
     """Página sencilla de GitHub Pages: botones para suscribirse y los últimos lanzamientos."""
     urls = enlaces_suscripcion(cfg.calendario_url)
     e = html.escape
     items = "\n".join(
         f'<li><span class="fecha">{e(f["fecha"][:10])}</span> {e(texto(f["bandera"]))} '
-        f'<a href="{e(enlace_principal(f) or "#")}">{e(f["nombre"])}</a> '
+        f'<a href="{e(enlace_principal(f, rotos) or "#")}">{e(f["nombre"])}</a> '
         f'<span class="emp">· {e(texto(f["empresa"]) or f["empresa_id"])}</span></li>'
         for f in filas[:15])
     return f"""<!doctype html>
@@ -163,10 +164,11 @@ def publicar(carpeta: Path, dias: int = 365) -> int:
     con = db.conectar()
     desde = (date.today() - timedelta(days=dias)).isoformat()
     filas = con.execute(CONSULTA, (desde,)).fetchall()
+    rotos = enlaces_rotos(con)
     con.close()
     carpeta.mkdir(parents=True, exist_ok=True)
-    (carpeta / "wikiia.ics").write_text(generar_ics(filas), encoding="utf-8", newline="")
-    (carpeta / "index.html").write_text(generar_pagina(filas, cfg), encoding="utf-8")
+    (carpeta / "wikiia.ics").write_text(generar_ics(filas, rotos), encoding="utf-8", newline="")
+    (carpeta / "index.html").write_text(generar_pagina(filas, cfg, rotos), encoding="utf-8")
     return len(filas)
 
 

@@ -6,6 +6,7 @@ import html
 import json
 import re
 import subprocess
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -21,9 +22,11 @@ from wikiia.alertas import enviar as enviar_alerta, texto_precio
 from wikiia.calendario import enlaces_suscripcion
 from wikiia.chat import SALUDO, ClaveInvalida, ErrorChat, responder, separar_opciones, validar_clave
 from wikiia.config import DB_RUTA, cargar_config, es_publico, perfil_equipo
+from wikiia.cuentas import DIAS_SESION, Cuentas, ErrorCuenta, Usuario
+from wikiia.enlaces import rotos as enlaces_rotos
 from wikiia.heuristicas import (
     ETIQUETA_ACCESO, ETIQUETA_POTENCIA, ETIQUETAS_CAP, ICONO_CAP,
-    enlace_principal, estrellas, notas_importantes, num, requisitos_local, texto, veredicto_texto,
+    acceso_real, enlace_principal, estrellas, notas_importantes, num, requisitos_local, texto, veredicto_texto,
 )
 from wikiia.investigador import investigar_modelo, pendientes
 from wikiia.motores import comando_descarga, es_difusion, motores, obtener_descargas, requisitos
@@ -105,6 +108,7 @@ def cargar_datos(marca: tuple):  # 'marca' cambia cuando la base cambia → reca
     alertas = pd.read_sql_query("SELECT * FROM alertas ORDER BY id DESC LIMIT 100", con)
     ejecuciones = pd.read_sql_query("SELECT * FROM ejecuciones ORDER BY id DESC LIMIT 30", con)
     linea_base = db.meta_get(con, "linea_base")
+    rotos = enlaces_rotos(con)  # revisados por `python -m wikiia enlaces`: no se muestran
     con.close()
 
     perfil = perfil_equipo()
@@ -113,20 +117,21 @@ def cargar_datos(marca: tuple):  # 'marca' cambia cuando la base cambia → reca
     modelos["empresa"] = modelos["empresa"].fillna(modelos["empresa_id"])
     modelos["pais_label"] = modelos["bandera"] + " " + modelos["pais"]
     modelos["potencia"] = modelos["potencia"].fillna(0).astype(int)
+    modelos["acceso"] = modelos.apply(lambda f: acceso_real(f, rotos), axis=1)
     modelos["estrellas"] = modelos["potencia"].map(estrellas)
     modelos["acceso_label"] = modelos["acceso"].map(ETIQUETA_ACCESO).fillna("—")
     for c in CAPS:
         modelos[c] = modelos[c].fillna(0).astype(int).astype(bool)
     modelos["sirve_para"] = modelos.apply(lambda f: " ".join(ICONO_CAP[c] for c in CAPS if f[c]), axis=1)
     modelos["precio"] = modelos.apply(lambda f: texto_precio(f, corto=True), axis=1)
-    modelos["enlace"] = modelos.apply(enlace_principal, axis=1)
+    modelos["enlace"] = modelos.apply(lambda f: enlace_principal(f, rotos), axis=1)
     # Streamlit decodifica el texto visible (decodeURIComponent): se codifica para que +, % o # se vean tal cual.
     modelos["modelo"] = modelos.apply(
         lambda f: f"{f['enlace'] or 'https://www.google.com/search?q=' + quote(str(f['nombre']))}"
                   f"#{quote(str(f['nombre']), safe='')}", axis=1)
     modelos["fecha_dt"] = pd.to_datetime(modelos["fecha"], errors="coerce")
     modelos["mi_pc"] = modelos.apply(lambda f: requisitos_local(f, perfil)[1], axis=1)
-    return modelos, empresas, paises, alertas, ejecuciones, linea_base
+    return modelos, empresas, paises, alertas, ejecuciones, linea_base, rotos
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -231,7 +236,7 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
         if notas:
             st.warning("**⚠️ Importante tener en cuenta**\n\n" + "\n".join(f"- {n}" for n in notas))
 
-        if f["acceso"] in ("local", "ambos") and texto(f["hf_id"]):
+        if f["acceso"] in ("local", "ambos") and enlace_ok(f"https://huggingface.co/{f['hf_id']}" if texto(f["hf_id"]) else ""):
             seccion_local(f, clave)
         seccion_web(f, clave)
 
@@ -245,7 +250,9 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
                     proveedor = investigar_modelo(con, ClienteLLM(cargar_config()), f["id"])
                     st.toast(f"Ficha actualizada con {proveedor}", icon="🧠")
                 except ErrorLLM as e:
-                    st.error(f"No se pudo investigar: {e}")
+                    print(f"[WikiIA] No se pudo investigar {f['id']}: {e}")  # el detalle técnico va a la terminal
+                    st.warning("⏳ No se pudo investigar ahora: Groq y Ollama no respondieron. Revisa tu clave de "
+                               "Groq en Configuración o que Ollama esté abierto, y vuelve a intentarlo en un momento.")
                     con.close()
                     st.stop()
                 con.close()
@@ -254,7 +261,13 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
             editar_ficha(f, clave)
 
 
+def enlace_ok(url) -> bool:
+    """False si está vacío o si la revisión de enlaces lo encontró roto."""
+    return bool(texto(url)) and url not in ENLACES_ROTOS
+
+
 def botones_enlace(botones: list[tuple[str, str]], clave: str) -> None:
+    botones = [(etiqueta, url) for etiqueta, url in botones if enlace_ok(url)]
     if not botones:
         return
     columnas = st.columns(min(len(botones), 3))
@@ -325,15 +338,15 @@ def seccion_web(f: pd.Series, clave: str) -> None:
     """Dónde usarlo en la web: chat oficial, web del modelo, API y precios."""
     enlaces = db.cargar_json(f["enlaces"], {})
     botones = []
-    if texto(f["chat_url"]):
+    if enlace_ok(f["chat_url"]):
         botones.append(("💬 Probarlo en su chat oficial", f["chat_url"]))
-    if enlaces.get("web"):
+    if enlace_ok(enlaces.get("web")):
         botones.append(("🌐 Web oficial del modelo", enlaces["web"]))
-    if texto(f["api_url"]):
+    if enlace_ok(f["api_url"]):
         botones.append(("🛠️ API y documentación", f["api_url"]))
-    if enlaces.get("openrouter"):
+    if enlace_ok(enlaces.get("openrouter")):
         botones.append(("🔀 Precios y proveedores", enlaces["openrouter"]))
-    if texto(f["empresa_web"]):
+    if enlace_ok(f["empresa_web"]):
         botones.append((f"🏢 Web de {f['empresa']}", f["empresa_web"]))
     if botones:
         st.markdown("#### 🌐 Dónde usarlo en la web" if f["acceso"] != "local" else "#### 🌐 Enlaces")
@@ -471,7 +484,8 @@ def pasos_tour() -> list[dict]:
         paso(".st-key-burbuja_chat", "🧭 ¿No sabes cuál elegir?",
              "Toca esta burbuja cuando quieras: una guía con IA te pregunta <b>qué quieres lograr</b>, si lo "
              "quieres <b>en tu computador o en la nube</b> y con qué equipo cuentas, y te <b>recomienda el modelo "
-             "ideal</b>. Funciona con tu propia clave gratis de Groq.", barra=False, lado="left"),
+             "ideal</b>. Creas tu cuenta con correo y contraseña y usas tu propia clave gratis de Groq.",
+             barra=False, lado="left"),
         paso('[data-testid="stExpander"]', "🌍 Cada país es una sección",
              "Ábrela para ver su tabla. Ahí, toca el <b>nombre</b> de un modelo para abrir su página, "
              "o marca la <b>casilla</b> de la fila para ver su ficha completa.", barra=False),
@@ -529,7 +543,7 @@ def caja_avisos() -> None:
 
 
 # ───────────────────────────── app ─────────────────────────────
-modelos, empresas, paises, alertas, ejecuciones, linea_base = cargar_datos(marca_db())
+modelos, empresas, paises, alertas, ejecuciones, linea_base, ENLACES_ROTOS = cargar_datos(marca_db())
 cfg = cargar_config()
 
 if modelos.empty:
@@ -681,7 +695,7 @@ with tab_emp:
         c4.metric("Con pesos abiertos", f"{grupo['acceso'].isin(['local', 'ambos']).mean() * 100:.0f}%")
         st.markdown("**Qué cubre esta empresa:** " + " · ".join(
             f"{ETIQUETAS_CAP[c]} ({int(grupo[c].sum())})" for c in CAPS if grupo[c].any()))
-        if texto(fila_emp["empresa_web"]):
+        if enlace_ok(fila_emp["empresa_web"]):
             st.link_button(f"🔗 Web de {fila_emp['empresa']}", fila_emp["empresa_web"])
         tabla_con_ficha(grupo, f"empresa_{empresa_id}",
                         ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt"])
@@ -785,8 +799,9 @@ with tab_est:
 
 # ---------- guía con IA: burbuja flotante ----------
 # Burbuja abajo a la derecha (en todas las pestañas) que abre una ventana de chat: entrevista al visitante y le
-# recomienda un modelo. Público: cada visitante usa SU clave de Groq, guardada solo en st.session_state (nunca en
-# disco ni en st.cache_*, que se comparte entre visitantes). En tu PC: la del .env.
+# recomienda un modelo con SU clave de Groq. Con cuentas (DATABASE_URL + WIKIIA_SECRETO) la persona entra con correo
+# y contraseña y la clave queda cifrada en PostgreSQL; sin cuentas vive solo en st.session_state. Nunca en disco ni en
+# st.cache_* (se comparte entre visitantes).
 CSS_BURBUJA = """<style>
 /* Más arriba que la esquina: en Streamlit Cloud ahí está el botón "Manage app". */
 .st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 76px; z-index: 999990; width: auto !important;
@@ -850,6 +865,12 @@ CSS_BURBUJA = """<style>
 .wikiia-cabecera small { display: flex; align-items: center; gap: 6px; opacity: .7; font-size: .8rem; }
 .wikiia-cabecera small::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #10b981;
   box-shadow: 0 0 0 3px rgba(16, 185, 129, .2); }
+/* Entrar / crear cuenta / conectar: verde de la guía en vez del rojo de Streamlit. */
+.st-key-ventana_guia button[kind^="primary"] { background: #10b981 !important; border-color: #10b981 !important; color: #fff !important; }
+.st-key-ventana_guia button[kind^="primary"]:hover { background: #047857 !important; border-color: #047857 !important; }
+.st-key-ventana_guia [role="tab"][aria-selected="true"], .st-key-ventana_guia [role="tab"][aria-selected="true"] p { color: #047857 !important; }
+.st-key-ventana_guia .react-aria-SelectionIndicator, .st-key-ventana_guia [data-baseweb="tab-highlight"] { background-color: #10b981 !important; }
+.st-key-ventana_guia input:focus { border-color: #10b981 !important; }
 @media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 72px; }
   .st-key-burbuja_chat::before { display: none; } }
 </style>"""
@@ -866,38 +887,167 @@ ESCRIBIENDO = ('<div class="wikiia-escribiendo"><span></span><span></span><span>
                '<em>escribiendo…</em></div>')
 
 
-def _olvidar_clave() -> None:
+COOKIE_SESION = "wikiia_sesion"
+
+
+@st.cache_resource(show_spinner=False)
+def cuentas() -> Cuentas | None:
+    """Cuentas en PostgreSQL (wikiia/cuentas.py). None si faltan DATABASE_URL o WIKIIA_SECRETO: entonces la clave
+    de Groq dura solo la sesión, como antes. Se comparte entre visitantes, pero no guarda nada de nadie."""
+    return Cuentas.desde_config(cfg)
+
+
+CUENTAS = cuentas()
+
+
+def _iniciar_sesion(usuario: Usuario, token: str, escribir_cookie: bool = True) -> None:
+    st.session_state.usuario, st.session_state.token_sesion = usuario, token
     st.session_state.pop("groq_clave", None)
-    st.session_state.pop("chat", None)
+    if usuario.groq_clave:
+        st.session_state.groq_clave = usuario.groq_clave
+    if escribir_cookie:
+        st.session_state.cookie_pendiente = token  # el navegador la guarda en la próxima vuelta (ver el final)
+
+
+def usuario_actual() -> Usuario | None:
+    """Recupera la sesión desde la cookie, una vez por visita."""
+    if "usuario" not in st.session_state:
+        st.session_state.usuario = None
+        token = st.context.cookies.get(COOKIE_SESION)
+        if CUENTAS and isinstance(token, str) and token:
+            try:
+                usuario = CUENTAS.por_sesion(token)
+            except ErrorCuenta:
+                usuario = None  # la base no respondió: la persona puede entrar a mano
+            else:
+                if usuario:
+                    _iniciar_sesion(usuario, token, escribir_cookie=False)
+                else:
+                    st.session_state.cookie_pendiente = ""  # venció o se cerró en otro lado: se borra
+    return st.session_state.usuario
+
+
+def _limpiar_sesion() -> None:
+    for k in ("token_sesion", "groq_clave", "chat", "aviso_guia", "pendiente_guia"):
+        st.session_state.pop(k, None)
+    st.session_state.usuario = None
+    st.session_state.cookie_pendiente = ""
+
+
+def _cerrar_sesion() -> None:
+    try:
+        CUENTAS.salir(st.session_state.get("token_sesion", ""))
+    except ErrorCuenta:
+        pass  # la cookie se borra igual; la sesión vence sola en la base
+    _limpiar_sesion()
+
+
+def _borrar_cuenta() -> None:
+    try:
+        CUENTAS.borrar_cuenta(st.session_state.usuario.id)
+    except ErrorCuenta as e:
+        st.toast(str(e), icon="⚠️")
+        return
+    _limpiar_sesion()
+    st.toast("Listo: tu cuenta y tu clave de Groq se borraron.", icon="🗑️")
+
+
+def _olvidar_clave() -> None:
+    usuario = st.session_state.get("usuario")
+    if usuario and CUENTAS:
+        try:
+            CUENTAS.borrar_clave(usuario.id)
+        except ErrorCuenta:
+            pass
+        st.session_state.usuario = replace(usuario, groq_clave="")
+    st.session_state.pop("groq_clave", None)
 
 
 def _empezar_de_nuevo() -> None:
-    st.session_state.pop("chat", None)
+    for k in ("chat", "aviso_guia", "pendiente_guia"):
+        st.session_state.pop(k, None)
 
 
 def _mostrar(texto_md: str) -> None:
     st.markdown(texto_md.replace("$", r"\$"))  # "$4 / $20" no es una fórmula matemática
 
 
-def _guia_sin_clave() -> None:
-    st.markdown("Te pregunto **qué quieres lograr**, si lo quieres **en tu computador o en la nube** y con qué "
-                "equipo cuentas, y te recomiendo el modelo ideal.\n\nFunciona con **tu clave gratis de Groq**:\n"
+def _con_cuenta(accion) -> None:
+    """Corre entrar/registrar y, si sale bien, deja la sesión abierta."""
+    try:
+        with st.spinner("Un momento…"):
+            usuario, token = accion()
+    except ErrorCuenta as e:
+        st.warning(str(e))
+        return
+    _iniciar_sesion(usuario, token)
+    st.rerun()
+
+
+def _guia_entrar() -> None:
+    st.markdown("Te pregunto **qué quieres lograr** y con qué equipo cuentas, y te recomiendo el modelo de IA ideal.\n\n"
+                "Para usarla, **entra o crea tu cuenta gratis** (solo correo y contraseña): así tu clave de Groq "
+                "queda guardada **cifrada** y no tienes que pegarla cada vez que vuelvas.")
+    entrar, crear = st.tabs(["🔑 Entrar", "✨ Crear cuenta"])
+    with entrar, st.form("form_entrar", border=False):
+        correo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", key="entrar_correo")
+        contrasena = st.text_input("Contraseña", type="password", autocomplete="current-password",
+                                   key="entrar_contrasena")
+        if st.form_submit_button("Entrar", type="primary", width="stretch"):
+            _con_cuenta(lambda: CUENTAS.entrar(correo, contrasena))
+    with crear, st.form("form_crear", border=False):
+        correo_nuevo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", key="crear_correo")
+        nueva = st.text_input("Contraseña (mínimo 8 caracteres)", type="password", autocomplete="new-password",
+                              key="crear_contrasena")
+        repetida = st.text_input("Repite la contraseña", type="password", autocomplete="new-password",
+                                 key="crear_repetida")
+        if st.form_submit_button("Crear mi cuenta", type="primary", width="stretch"):
+            _con_cuenta(lambda: CUENTAS.registrar(correo_nuevo, nueva, repetida))
+    st.caption("🔒 Tu contraseña no se guarda: solo una huella que no se puede revertir. Tu clave de Groq se guarda "
+               "cifrada y solo viaja a Groq.")
+
+
+def _guia_sin_clave(usuario: Usuario | None) -> None:
+    if st.session_state.get("aviso_clave"):
+        st.warning(st.session_state.pop("aviso_clave"))
+    st.markdown(("" if usuario else "Te pregunto **qué quieres lograr**, si lo quieres **en tu computador o en la "
+                 "nube** y con qué equipo cuentas, y te recomiendo el modelo ideal.\n\n")
+                + "Funciona con **tu clave gratis de Groq**:\n"
                 "1. Crea tu cuenta en **[console.groq.com](https://console.groq.com)** (con Google, GitHub o correo).\n"
                 "2. Ve a **[API Keys](https://console.groq.com/keys)** → **Create API Key** y cópiala (empieza por `gsk_`).\n"
                 "3. Pégala aquí:")
     with st.form("form_clave_groq", border=False):
         nueva = st.text_input("Tu clave de Groq", type="password", placeholder="gsk_…", label_visibility="collapsed")
         if st.form_submit_button("🔌 Conectar", type="primary", width="stretch"):
-            ok, detalle = validar_clave(nueva.strip(), cfg.groq_modelo)
+            with st.spinner("Verificando tu clave…"):
+                ok, detalle = validar_clave(nueva.strip(), cfg.groq_modelo_guia)
             if ok:
                 st.session_state.groq_clave = nueva.strip()
+                if usuario and CUENTAS:
+                    try:
+                        CUENTAS.guardar_clave(usuario.id, nueva.strip())
+                        st.session_state.usuario = replace(usuario, groq_clave=nueva.strip())
+                    except ErrorCuenta:
+                        st.toast("No pude guardarla en tu cuenta: por ahora funciona solo en esta visita.", icon="⚠️")
                 st.rerun()
-            st.error(detalle)
-    st.caption("🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
+            st.warning(detalle)
+    st.caption("🔒 Se guarda **cifrada en tu cuenta** y solo viaja a Groq (por HTTPS)." if usuario else
+               "🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
                "cerrarla. Solo viaja a Groq (cifrada por HTTPS).")
 
 
-def _guia_chat(clave: str) -> None:
+def _mi_cuenta(usuario: Usuario) -> None:
+    with st.expander("👤 Mi cuenta"):
+        st.caption(f"Conectado como `{usuario.correo}`")  # en código: así no se vuelve un enlace mailto
+        with st.container(horizontal=True, gap="small"):
+            if st.session_state.get("groq_clave"):
+                st.button("🔑 Cambiar mi clave de Groq", on_click=_olvidar_clave)
+            st.button("🚪 Cerrar sesión", on_click=_cerrar_sesion)
+        if st.checkbox("Quiero borrar mi cuenta", key="confirmar_borrado"):
+            st.button("🗑️ Borrar mi cuenta y mi clave", type="primary", on_click=_borrar_cuenta)
+
+
+def _guia_chat(clave: str, usuario: Usuario | None) -> None:
     conversacion = st.session_state.setdefault("chat", [])
     if not conversacion:
         conversacion.append({"role": "assistant", "content": SALUDO})
@@ -910,18 +1060,25 @@ def _guia_chat(clave: str) -> None:
             avatar = AVATAR_GUIA if mensaje["role"] == "assistant" else AVATAR_PERSONA
             with st.chat_message(mensaje["role"], avatar=avatar):
                 _mostrar(cuerpo)
-                if opciones and i == len(conversacion) - 1:  # respuestas rápidas solo en la última pregunta
-                    with st.container(horizontal=True, gap="small"):
+                if opciones and i == len(conversacion) - 1 and not st.session_state.get("aviso_guia"):
+                    with st.container(horizontal=True, gap="small"):  # respuestas rápidas solo en la última
                         for j, opcion in enumerate(opciones):
                             if st.button(opcion, key=f"opcion_{len(conversacion)}_{j}"):
                                 pregunta = opcion
+        if st.session_state.get("aviso_guia"):  # algo falló: se explica qué hacer y se ofrece reenviar
+            with st.chat_message("assistant", avatar=AVATAR_GUIA):
+                st.info(st.session_state.aviso_guia)
+                if st.button("🔁 Enviar de nuevo", key="reintentar_guia"):
+                    pregunta = st.session_state.get("pendiente_guia")
     pregunta = st.chat_input("Escribe tu respuesta…", key="entrada_guia") or pregunta
     with st.container(horizontal=True, gap="small"):
         if len(conversacion) > 1:
             st.button("🔄 Empezar de nuevo", type="tertiary", on_click=_empezar_de_nuevo)
-        if st.session_state.get("groq_clave"):
+        if not usuario:
             st.button("🔒 Olvidar mi clave", type="tertiary", on_click=_olvidar_clave)
     if pregunta:
+        st.session_state.pop("aviso_guia", None)
+        st.session_state.pop("pendiente_guia", None)
         conversacion.append({"role": "user", "content": pregunta})
         with mensajes:
             with st.chat_message("user", avatar=AVATAR_PERSONA):
@@ -930,30 +1087,41 @@ def _guia_chat(clave: str) -> None:
                 escribiendo = st.empty()
                 escribiendo.html(ESCRIBIENDO)  # se ve mientras Groq responde
                 try:
-                    respuesta = responder(clave, cfg.groq_modelo, conversacion, modelos)
+                    respuesta = responder(clave, cfg.groq_modelo_guia, conversacion, modelos, avisar=lambda t: (
+                        escribiendo.html(ESCRIBIENDO.replace("escribiendo…", html.escape(t)))))
                     conversacion.append({"role": "assistant", "content": respuesta})
-                    st.rerun()  # redibuja para mostrar los botones de respuesta rápida
                 except ClaveInvalida as e:
-                    escribiendo.empty()
                     conversacion.pop()
-                    st.session_state.pop("groq_clave", None)
-                    st.error(str(e))
-                except ErrorChat as e:
-                    escribiendo.empty()
+                    _olvidar_clave()
+                    st.session_state.aviso_clave = str(e)
+                except ErrorChat as e:  # nunca el error crudo de Groq: un mensaje que dice qué hacer
                     conversacion.pop()
-                    st.error(str(e))
+                    st.session_state.aviso_guia, st.session_state.pendiente_guia = str(e), pregunta
+        st.rerun()  # redibuja: botones de respuesta rápida o el aviso con «Enviar de nuevo»
 
 
+usuario = usuario_actual()
 with st.container(key="burbuja_chat"):
     st.html(CSS_BURBUJA)
     with st.popover("W", help="Tu guía para elegir modelo"):
         with st.container(key="ventana_guia"):
             st.html(CABECERA_GUIA)
-            clave_guia = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)
-            if clave_guia:
-                _guia_chat(clave_guia)
+            if CUENTAS and not usuario:
+                _guia_entrar()
+            elif st.session_state.get("groq_clave"):
+                _guia_chat(st.session_state.groq_clave, usuario)
             else:
-                _guia_sin_clave()
+                _guia_sin_clave(usuario)
+            if usuario:
+                _mi_cuenta(usuario)
+
+# Después de entrar o salir: el navegador guarda (o borra) la cookie de la sesión. Sin "<" adentro del script
+# (el filtro de st.html lo borraría). Lleva un código al azar; en la base solo está su huella.
+if "cookie_pendiente" in st.session_state:
+    token_cookie = st.session_state.pop("cookie_pendiente")
+    st.html(f"<script>document.cookie = '{COOKIE_SESION}={token_cookie}; max-age="
+            f"{DIAS_SESION * 86400 if token_cookie else 0}; path=/; SameSite=Lax'"
+            " + (location.protocol === 'https:' ? '; Secure' : '');</script>", unsafe_allow_javascript=True)
 
 # ---------- tour guiado (primera visita) ----------
 # Se envía una vez por sesión si el navegador no trae la cookie; tour.js la vuelve a revisar antes de empezar.

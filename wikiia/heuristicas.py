@@ -122,18 +122,30 @@ def texto(valor) -> str:
     return valor if isinstance(valor, str) else ""
 
 
-def enlace_principal(f) -> str | None:
+def acceso_real(f, rotos: frozenset[str] | set[str] = frozenset()) -> str:
+    """'ambos' pasa a 'api' si su página de Hugging Face no existe (OpenRouter a veces anuncia pesos que
+    la empresa aún no publicó). Si los publica, la próxima revisión de enlaces lo devuelve a 'ambos'."""
+    if f["acceso"] == "ambos" and texto(f["hf_id"]) and f"https://huggingface.co/{f['hf_id']}" in rotos:
+        return "api"
+    return f["acceso"]
+
+
+def enlace_principal(f, rotos: frozenset[str] | set[str] = frozenset()) -> str | None:
     """Local → su página de descarga en Hugging Face. Nube → su chat o web oficial.
 
     `f` necesita: acceso, hf_id, enlaces, chat_url, empresa_web (fila de pandas o de sqlite).
+    `rotos`: URLs que no abren (wikiia/enlaces.py); se salta a la siguiente opción.
     """
     from .db import cargar_json  # aquí para no cargar la base al importar las reglas
 
     enlaces = cargar_json(f["enlaces"], {})
+    candidatos = []
     if f["acceso"] in ("local", "ambos") and texto(f["hf_id"]):
-        return f"https://huggingface.co/{f['hf_id']}"
-    return (texto(f["chat_url"]) or enlaces.get("web") or texto(f["empresa_web"])
-            or enlaces.get("openrouter") or None)
+        candidatos.append(f"https://huggingface.co/{f['hf_id']}")
+    candidatos += [texto(f["chat_url"]), enlaces.get("web"), texto(f["empresa_web"]), enlaces.get("openrouter")]
+    if texto(f["hf_id"]):  # un modelo de nube con pesos publicados: su página de HF también sirve
+        candidatos.append(f"https://huggingface.co/{f['hf_id']}")
+    return next((u for u in candidatos if u and u not in rotos), None)
 
 
 def requisitos_local(fila, perfil: dict) -> tuple[str, str | None]:

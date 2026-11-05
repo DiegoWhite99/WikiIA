@@ -75,15 +75,37 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
   la app en una ventana de incógnito.
 - **Avisos**: el recuadro "¿Quieres enterarte?" aparece cuando el calendario ya está publicado. Con
   `TELEGRAM_CANAL_URL` aparece también el botón del canal de Telegram.
-- **Guía con IA** (pestaña 🧭 ¿Qué modelo uso?): entrevista al visitante (qué quiere lograr, local o nube,
-  su computador, presupuesto) y le recomienda un modelo del catálogo con los pasos para empezar. La IA busca
-  con la herramienta `buscar_modelos` (`wikiia/chat.py`) en vez de responder de memoria. En la nube cada
-  visitante pone **su propia clave gratis de Groq**, que solo vive en su sesión (no se guarda en ningún lado);
-  en tu PC usa la de tu `.env`.
+- **Guía con IA** (burbuja verde con la W, abajo a la derecha): entrevista al visitante (qué quiere lograr,
+  local o nube, su computador, presupuesto) y le recomienda un modelo del catálogo con los pasos para empezar.
+  La IA busca con la herramienta `buscar_modelos` (`wikiia/chat.py`) en vez de responder de memoria. Cada
+  visitante usa **su propia clave gratis de Groq**. Usa un modelo moderado (`GROQ_MODELO_GUIA`,
+  `openai/gpt-oss-20b`) y, si Groq pide una pausa o se queda sin cupo, espera o pasa a `gpt-oss-120b`. Los
+  errores de Groq nunca se muestran crudos: la persona ve qué hacer (esperar, verificar su clave…).
+- **Cuentas** (`wikiia/cuentas.py`): con `DATABASE_URL` (PostgreSQL) y `WIKIIA_SECRETO`, la guía pide entrar
+  con correo y contraseña y guarda la clave de Groq **cifrada** en la cuenta; la sesión se recuerda 30 días.
+  La contraseña solo se guarda como huella scrypt. Sin esas dos variables la clave dura solo la sesión.
+- **Enlaces revisados** (`wikiia/enlaces.py`): `.venv/bin/python -m wikiia enlaces` revisa que abran los
+  enlaces de modelos y empresas (también corre en cada actualización automática). Los rotos no se muestran:
+  la app y el calendario usan el siguiente enlace disponible.
 - **Calendario a mano**: `.venv/bin/python -m wikiia.calendario --carpeta _site`
 
 Para que el workflow pueda publicar (una sola vez): en GitHub, **Settings → Pages → Build and deployment →
 Source: GitHub Actions**.
+
+### Base de datos de las cuentas (PostgreSQL)
+
+1. Crea una base gratis en [neon.tech](https://neon.tech) (entra con GitHub) y copia la *connection string*
+   (`postgresql://…?sslmode=require`).
+2. Genera un secreto: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+3. En Streamlit Cloud: **Manage app → ⋮ → Settings → Secrets** y pega:
+
+   ```toml
+   DATABASE_URL = "postgresql://…"
+   WIKIIA_SECRETO = "el-secreto-que-generaste"
+   ```
+
+   (En tu PC van en el `.env`.) Las tablas `wikiia_usuarios` y `wikiia_sesiones` se crean solas. No cambies
+   `WIKIIA_SECRETO` después: las claves de Groq guardadas dejarían de abrir.
 
 ## Versiones
 

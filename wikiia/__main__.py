@@ -5,6 +5,7 @@
     python -m wikiia probar-llm
     python -m wikiia probar-alerta
     python -m wikiia estado
+    python -m wikiia enlaces [--todos]     # revisa que los enlaces de modelos y empresas abran
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import argparse
 import json
 import sys
 
-from . import alertas, db, investigador
+from . import alertas, db, enlaces, investigador
 from .actualizador import ejecutar
 from .config import cargar_config
 from .fuentes import nueva_sesion
@@ -65,6 +66,9 @@ def main(argv=None) -> int:
     sub.add_parser("probar-llm", help="Comprueba Groq y Ollama")
     sub.add_parser("probar-alerta", help="Manda una alerta de prueba")
     sub.add_parser("estado", help="Resumen de la base de datos")
+    e = sub.add_parser("enlaces", help="Revisa que los enlaces de modelos y empresas abran")
+    e.add_argument("--todos", action="store_true", help="revisa también los que ya se revisaron hace poco")
+    e.add_argument("--limite", type=int, default=None)
     args = parser.parse_args(argv)
     cfg = cargar_config()
 
@@ -91,6 +95,13 @@ def main(argv=None) -> int:
         return 0
     if args.comando == "estado":
         return _estado()
+    if args.comando == "enlaces":
+        con = db.conectar()
+        conteo = enlaces.revisar(con, todos=args.todos, limite=args.limite)
+        print(f"Enlaces revisados: {conteo['revisados']} · abren: {conteo['abren']} · rotos: {conteo['rotos']} · "
+              f"sin confirmar: {conteo['sin_confirmar']}")
+        con.close()
+        return 0
     return 1
 
 

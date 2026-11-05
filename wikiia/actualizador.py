@@ -6,7 +6,7 @@ import json
 from contextlib import contextmanager
 from typing import Callable
 
-from . import alertas, db, investigador
+from . import alertas, db, enlaces, investigador
 from .catalogo import Resolutor, sincronizar_catalogo
 from .config import BLOQUEO, DATOS, Config, cargar_config
 from .fuentes import huggingface, nueva_sesion, openrouter
@@ -183,7 +183,15 @@ def _ejecutar(cfg: Config, investigar: int | None, alertar: bool, progreso) -> d
                     errores.append("IA: 3 fallos seguidos, se detiene la investigación por ahora.")
                     break
 
-    # 5) Alertas.
+    # 5) Enlaces: revisa los nuevos y los que llevan más de 14 días (los rotos se saltan en la app).
+    try:
+        conteo = enlaces.revisar(con, limite=400, progreso=progreso)
+        if conteo["rotos"]:
+            progreso(f"Enlaces: {conteo['rotos']} rotos de {conteo['revisados']} revisados.")
+    except Exception as e:  # noqa: BLE001 - revisar enlaces nunca detiene la actualización
+        errores.append(f"Enlaces: {e}")
+
+    # 6) Alertas.
     if alertar:
         if primera_vez and db.meta_get(con, "linea_base"):
             total = con.execute("SELECT COUNT(*) FROM modelos").fetchone()[0]

@@ -11,6 +11,7 @@ on:
     paths:  # solo lo que cambia el calendario (no cada cambio de versión de la app)
       - "wikiia.db"
       - "wikiia/calendario.py"
+      - "wikiia/enlaces.py"
       - "wikiia/heuristicas.py"
       - "wikiia/db.py"
       - "wikiia/config.py"

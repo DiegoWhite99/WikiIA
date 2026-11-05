@@ -87,6 +87,10 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
   muestra u oculta la contraseña. La sesión se recuerda 30 días; en la barra lateral está «👤 tu nombre» para
   cerrar sesión, cambiar la clave de Groq o borrar la cuenta. La contraseña solo se guarda como huella scrypt y
   la clave de Groq, cifrada. Sin esas dos variables (tu PC) no se pide iniciar sesión.
+- **Root** (administradores): los correos con su huella en `ROOTS_SHA256` (`wikiia/cuentas.py`) o en el
+  Secret `WIKIIA_ROOTS` (separados por comas) ven la pestaña **👑 Administración**: usuarios registrados, quién
+  guardó clave de Groq, sesiones abiertas y borrar cuentas. Cualquiera puede **cambiar su contraseña** en
+  «👤 su nombre» (cierra sus sesiones en otros navegadores).
 - **Enlaces revisados** (`wikiia/enlaces.py`): `.venv/bin/python -m wikiia enlaces` revisa que abran los
   enlaces de modelos y empresas (también corre en cada actualización automática). Los rotos no se muestran:
   la app y el calendario usan el siguiente enlace disponible.

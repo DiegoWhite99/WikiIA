@@ -8,6 +8,9 @@ Groq una sola vez y la tiene cada vez que vuelve.
 - La sesión se recuerda 30 días con una cookie que lleva un código al azar; en la base solo queda
   su huella SHA-256, así que quien lea la base no puede entrar como nadie.
 - 5 contraseñas equivocadas seguidas bloquean esa cuenta 15 minutos.
+- Root (administradores): los correos cuya huella SHA-256 está en ROOTS_SHA256 (así el repositorio público
+  no muestra los correos) o los que pongas en WIKIIA_ROOTS (separados por comas). Ven la pestaña
+  «👑 Administración» con los usuarios registrados y pueden borrar cuentas.
 
 Variables (en .env o en Settings → Secrets de Streamlit Cloud):
     DATABASE_URL    postgresql://usuario:contraseña@servidor/base?sslmode=require   (Neon, Supabase…)
@@ -34,6 +37,12 @@ MAX_CONTRASENA = 128
 MAX_NOMBRE = 80
 _RE_CORREO = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s.]{2,}$")
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
+# Huellas SHA-256 de los correos root (en minúsculas). Para agregar uno:
+#   python3 -c "import hashlib; print(hashlib.sha256('correo@ejemplo.com'.encode()).hexdigest())"
+ROOTS_SHA256 = frozenset({
+    "652b8e0a5768321c559635a46613075bf42d21946400611da40ee805d58d7041",
+    "5604114a8e4523fed2b4b12f446ec81d3435a8101bacf5a6e56cec30f0634edc",
+})
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS wikiia_usuarios (
@@ -67,6 +76,7 @@ class Usuario:
     correo: str
     nombre: str
     groq_clave: str = ""  # "" si todavía no la guardó
+    root: bool = False    # administrador: ve la pestaña «👑 Administración»
 
 
 def _b64(datos: bytes) -> str:
@@ -107,15 +117,21 @@ def normalizar_correo(correo: str) -> str:
     return (correo or "").strip().lower()
 
 
+def es_root(correo: str, extra: frozenset[str] = frozenset()) -> bool:
+    correo = normalizar_correo(correo)
+    return correo in extra or hashlib.sha256(correo.encode()).hexdigest() in ROOTS_SHA256
+
+
 class Cuentas:
     """Registro, ingreso, sesiones y la clave de Groq cifrada de cada persona."""
 
     _esquema_listo: set[str] = set()
 
-    def __init__(self, url: str, secreto: str):
+    def __init__(self, url: str, secreto: str, roots: frozenset[str] = frozenset()):
         from cryptography.fernet import Fernet
 
         self.url = url
+        self.roots = frozenset(normalizar_correo(c) for c in roots if c.strip())
         llave = hashlib.sha256(b"wikiia-groq|" + secreto.encode()).digest()
         self._fernet = Fernet(base64.urlsafe_b64encode(llave))
 
@@ -123,7 +139,7 @@ class Cuentas:
     def desde_config(cls, cfg) -> "Cuentas | None":
         if not (cfg.database_url and cfg.secreto):
             return None
-        return cls(cfg.database_url, cfg.secreto)
+        return cls(cfg.database_url, cfg.secreto, cfg.roots)
 
     # ---------- conexión ----------
     def _conectar(self):
@@ -171,7 +187,8 @@ class Cuentas:
 
     def _usuario(self, fila) -> Usuario:
         """fila = (correo, nombre, groq_cifrada, …)"""
-        return Usuario(correo=fila[0], nombre=fila[1], groq_clave=self._descifrar(fila[2]))
+        return Usuario(correo=fila[0], nombre=fila[1], groq_clave=self._descifrar(fila[2]),
+                       root=es_root(fila[0], self.roots))
 
     @staticmethod
     def _nueva_sesion(con, correo: str) -> str:
@@ -267,6 +284,43 @@ class Cuentas:
         if token:
             self._consulta(lambda con: con.execute(
                 "DELETE FROM wikiia_sesiones WHERE token_hash = %s", (_huella_token(token),)))
+
+    def cambiar_contrasena(self, correo: str, actual: str, nueva: str, repetida: str, token_actual: str = "") -> None:
+        """Cambia la contraseña y cierra las demás sesiones abiertas (otros navegadores); la actual sigue."""
+        if len(nueva) < MIN_CONTRASENA:
+            raise ErrorCuenta(f"La contraseña nueva debe tener al menos {MIN_CONTRASENA} caracteres.")
+        if len(nueva) > MAX_CONTRASENA:
+            raise ErrorCuenta(f"La contraseña puede tener máximo {MAX_CONTRASENA} caracteres.")
+        if nueva != repetida:
+            raise ErrorCuenta("Las dos contraseñas nuevas no coinciden. Escríbelas de nuevo.")
+        if nueva == actual:
+            raise ErrorCuenta("La contraseña nueva debe ser distinta de la actual.")
+        huella_nueva = huella_contrasena(nueva)
+
+        def cambiar(con):
+            fila = con.execute("SELECT clave_hash FROM wikiia_usuarios WHERE correo = %s FOR UPDATE",
+                               (normalizar_correo(correo),)).fetchone()
+            if fila is None or not contrasena_coincide(actual, fila[0]):
+                return False
+            con.execute("UPDATE wikiia_usuarios SET clave_hash = %s, fallos = 0, bloqueado_hasta = NULL "
+                        "WHERE correo = %s", (huella_nueva, normalizar_correo(correo)))
+            con.execute("DELETE FROM wikiia_sesiones WHERE correo = %s AND token_hash <> %s",
+                        (normalizar_correo(correo), _huella_token(token_actual) if token_actual else ""))
+            return True
+
+        if not self._consulta(cambiar):
+            raise ErrorCuenta("La contraseña actual no es correcta.")
+
+    # ---------- administración (root) ----------
+    def listar_usuarios(self) -> list[dict]:
+        """Todos los usuarios, sin contraseñas ni claves: solo si guardaron una clave de Groq."""
+        filas = self._consulta(lambda con: con.execute(
+            "SELECT u.correo, u.nombre, u.creado, u.ultimo_ingreso, u.groq_cifrada IS NOT NULL, "
+            "COALESCE(u.bloqueado_hasta > now(), false), "
+            "(SELECT count(*) FROM wikiia_sesiones s WHERE s.correo = u.correo AND s.expira > now()) "
+            "FROM wikiia_usuarios u ORDER BY u.creado DESC").fetchall())
+        return [{"correo": f[0], "nombre": f[1], "creado": f[2], "ultimo_ingreso": f[3], "tiene_groq": f[4],
+                 "bloqueado": f[5], "sesiones": f[6], "root": es_root(f[0], self.roots)} for f in filas]
 
     # ---------- clave de Groq ----------
     def guardar_clave(self, correo: str, clave: str) -> None:

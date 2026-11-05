@@ -577,7 +577,7 @@ def cuentas() -> Cuentas | None:
     """Cuentas en PostgreSQL, o None si faltan DATABASE_URL o WIKIIA_SECRETO. Se crea en cada vuelta (es liviano):
     así lee los Secrets nuevos sin reiniciar y nunca queda una copia vieja del código guardada en caché (st.cache_resource
     sobrevive a las actualizaciones y sus errores ya no coincidían con los del código nuevo)."""
-    return Cuentas(cfg.database_url, cfg.secreto) if cfg.database_url and cfg.secreto else None
+    return Cuentas(cfg.database_url, cfg.secreto, cfg.roots) if cfg.database_url and cfg.secreto else None
 
 
 def mensaje_cuenta(e: Exception) -> str:
@@ -709,15 +709,73 @@ def _sin_markdown(texto_libre: str) -> str:
 
 
 def panel_cuenta(usuario: Usuario) -> None:
-    """Arriba de la barra lateral: quién está conectado, cerrar sesión, cambiar la clave de Groq o borrar la cuenta."""
-    with st.expander(f"👤 {_sin_markdown(usuario.nombre)}"):
-        st.caption(f"`{usuario.correo}`")  # en código: así no se vuelve un enlace mailto
+    """Arriba de la barra lateral: quién está conectado, cerrar sesión, cambiar contraseña o clave de Groq, borrar."""
+    with st.expander(f"{'👑' if usuario.root else '👤'} {_sin_markdown(usuario.nombre)}"):
+        st.caption(f"`{usuario.correo}`" + (" · **root**" if usuario.root else ""))  # en código: no se vuelve mailto
         st.button("🚪 Cerrar sesión", on_click=_cerrar_sesion, width="stretch", key="cerrar_sesion")
         if st.session_state.get("groq_clave"):
             st.button("🔑 Cambiar mi clave de Groq", on_click=_olvidar_clave, width="stretch", key="cambiar_clave")
+        if st.toggle("🔒 Cambiar mi contraseña", key="ver_cambio_contrasena"):
+            with st.form("form_cambiar_contrasena", border=False, clear_on_submit=True):
+                actual = st.text_input("Contraseña actual", type="password", autocomplete="current-password",
+                                       max_chars=128)
+                nueva = st.text_input("Contraseña nueva (mínimo 8)", type="password", autocomplete="new-password",
+                                      max_chars=128)
+                repetida = st.text_input("Repite la nueva", type="password", autocomplete="new-password", max_chars=128)
+                if st.form_submit_button("Guardar contraseña", type="primary", width="stretch"):
+                    try:
+                        CUENTAS.cambiar_contrasena(usuario.correo, actual, nueva, repetida,
+                                                   st.session_state.get("token_sesion", ""))
+                        st.success("✅ Listo: tu contraseña cambió. Se cerraron tus sesiones en otros navegadores.")
+                    except Exception as e:  # noqa: BLE001
+                        st.warning(mensaje_cuenta(e))
         if st.checkbox("Quiero borrar mi cuenta", key="confirmar_borrado"):
             st.button("🗑️ Borrar mi cuenta y mi clave", type="primary", on_click=_borrar_cuenta, width="stretch",
                       key="borrar_cuenta")
+
+
+def panel_root() -> None:
+    """Pestaña «👑 Administración» (solo root): quién se registró y borrar cuentas."""
+    try:
+        lista = CUENTAS.listar_usuarios()
+    except Exception as e:  # noqa: BLE001
+        st.warning(mensaje_cuenta(e))
+        return
+    hace_7 = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Usuarios registrados", len(lista))
+    c2.metric("Nuevos esta semana", sum(1 for u in lista if pd.Timestamp(u["creado"]) >= hace_7))
+    c3.metric("Con clave de Groq", sum(u["tiene_groq"] for u in lista))
+    c4.metric("Sesiones abiertas", sum(u["sesiones"] for u in lista))
+    if lista:
+        tabla_usuarios = pd.DataFrame([{
+            "Nombre": u["nombre"], "Correo": u["correo"], "Rol": "👑 root" if u["root"] else "usuario",
+            "Registro": pd.Timestamp(u["creado"]).tz_convert("America/Bogota").tz_localize(None),
+            "Último ingreso": (pd.Timestamp(u["ultimo_ingreso"]).tz_convert("America/Bogota").tz_localize(None)
+                               if u["ultimo_ingreso"] else pd.NaT),
+            "Clave de Groq": "✅" if u["tiene_groq"] else "—",
+            "Estado": "⏸️ en pausa" if u["bloqueado"] else "activo"} for u in lista])
+        st.dataframe(tabla_usuarios, hide_index=True, width="stretch", column_config={
+            "Registro": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm"),
+            "Último ingreso": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm")})
+    st.caption("Las contraseñas y las claves de Groq nunca se muestran: solo se guarda su huella o su versión cifrada. "
+               "Horas de Colombia.")
+    otros = [u["correo"] for u in lista if not u["root"]]
+    if otros:
+        with st.form("form_borrar_usuario", border=True):
+            st.markdown("**🗑️ Borrar una cuenta**")
+            elegido = st.selectbox("Correo", otros, index=None, placeholder="Elige el correo", key="root_borrar_correo")
+            seguro = st.checkbox("Confirmo: se borran la cuenta, su clave de Groq y sus sesiones", key="root_borrar_ok")
+            if st.form_submit_button("Borrar cuenta", type="primary"):
+                if not elegido or not seguro:
+                    st.warning("Elige el correo y marca la confirmación.")
+                else:
+                    try:
+                        CUENTAS.borrar_cuenta(elegido)
+                        st.toast(f"Se borró la cuenta {elegido}.", icon="🗑️")
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.warning(mensaje_cuenta(e))
 
 
 # ───────────────────────────── app ─────────────────────────────
@@ -835,9 +893,12 @@ sin_leer = int((alertas["leida"] == 0).sum()) if not alertas.empty and not PUBLI
 if sin_leer:
     st.info(f"🔔 Tienes **{sin_leer}** alertas sin leer: revisa la pestaña **Novedades**.")
 
-nombres_tabs = ["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
-                "📊 Estadísticas"] + ([] if PUBLICO else ["⚙️ Configuración"])
-tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_admin = st.tabs(nombres_tabs)
+ES_ROOT = bool(usuario and usuario.root and CUENTAS)
+nombres_tabs = (["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
+                 "📊 Estadísticas"] + ([] if PUBLICO else ["⚙️ Configuración"])
+                + (["👑 Administración"] if ES_ROOT else []))
+tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_extra = st.tabs(nombres_tabs)
+tab_admin = tab_extra[:1] if not PUBLICO else []  # Configuración (solo en tu PC)
 
 # ---------- por país ----------
 with tab_pais:
@@ -1185,6 +1246,11 @@ escribir_cookie()  # recién entró: el navegador guarda la cookie que recuerda 
 if not st.session_state.get("tour_enviado") and st.context.cookies.get(COOKIE_TOUR) != "1":
     st.session_state.tour_enviado = True
     st.html(html_tour(), unsafe_allow_javascript=True)
+
+# ---------- administración (solo root) ----------
+if ES_ROOT:
+    with tab_extra[-1]:
+        panel_root()
 
 # ---------- configuración (solo en tu PC) ----------
 if PUBLICO:

@@ -791,63 +791,75 @@ CSS_BURBUJA = """<style>
 /* Más arriba que la esquina: en Streamlit Cloud ahí está el botón "Manage app". */
 .st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 76px; z-index: 999990; width: auto !important;
   overflow: visible !important; }
-/* Botón 3D verde: degradado con brillo arriba a la izquierda, sombra interna y un "canto" que se hunde al tocarlo. */
-.st-key-burbuja_chat button { width: 64px; height: 64px; min-height: 64px; padding: 0 !important; border-radius: 50% !important;
-  border: none !important; color: #fff !important;
-  background: radial-gradient(circle at 32% 26%, #a7f3c4 0%, #34d47f 38%, #16a34a 72%, #0f7a37 100%) !important;
-  box-shadow: inset 0 -6px 10px rgba(0, 60, 20, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
-    0 6px 0 #0b5c2a, 0 14px 22px rgba(0, 0, 0, .35) !important;
-  transform: translateY(0); transition: transform .15s ease, box-shadow .15s ease; }
-.st-key-burbuja_chat button:hover { transform: translateY(-3px);
-  box-shadow: inset 0 -6px 10px rgba(0, 60, 20, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
-    0 9px 0 #0b5c2a, 0 20px 28px rgba(0, 0, 0, .35) !important; }
-.st-key-burbuja_chat button:active { transform: translateY(5px);
-  box-shadow: inset 0 -4px 8px rgba(0, 60, 20, .4), inset 0 4px 6px rgba(255, 255, 255, .35),
-    0 1px 0 #0b5c2a, 0 5px 10px rgba(0, 0, 0, .3) !important; }
-.st-key-burbuja_chat button p { font-size: 30px !important; line-height: 1; margin: 0;
-  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
+/* Burbuja: círculo esmeralda plano con una "W" en negrilla y sombra difusa de color. */
+.st-key-burbuja_chat button { width: 60px; height: 60px; min-height: 60px; padding: 0 !important; border-radius: 50% !important;
+  border: none !important; color: #fff !important; background: linear-gradient(140deg, #34d399 0%, #10b981 45%, #047857 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 12px 28px -6px rgba(4, 120, 87, .6), 0 4px 10px rgba(0, 0, 0, .12) !important;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s ease; }
+.st-key-burbuja_chat button:hover { transform: translateY(-2px) scale(1.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 18px 34px -6px rgba(4, 120, 87, .7), 0 6px 14px rgba(0, 0, 0, .14) !important; }
+.st-key-burbuja_chat button:active { transform: scale(.95); }
+.st-key-burbuja_chat button p { margin: 0; font-family: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
+  font-size: 30px !important; font-weight: 800 !important; line-height: 1; letter-spacing: -1px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .18); }
 .st-key-burbuja_chat button [data-testid="stIconMaterial"] { display: none; }
-/* Onda que late alrededor (en un pseudo-elemento, para no pisar las sombras 3D). */
-.st-key-burbuja_chat::after { content: ""; position: absolute; right: 0; bottom: 0; width: 64px; height: 64px;
-  border-radius: 50%; pointer-events: none; z-index: -1; animation: wikiia-onda 2.4s ease-out infinite; }
-@keyframes wikiia-onda { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70%, 100% { box-shadow: 0 0 0 16px rgba(34, 197, 94, 0); } }
-.st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 78px; bottom: 16px;
-  white-space: nowrap; padding: 8px 12px; border-radius: 12px; background: #fff; color: #1f2130; font-weight: 600;
-  font-size: .9rem; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); pointer-events: none; opacity: 0;
-  animation: wikiia-globo 9s ease 2s forwards; }
+/* Onda suave que late alrededor. */
+.st-key-burbuja_chat::after { content: ""; position: absolute; right: 0; bottom: 0; width: 60px; height: 60px;
+  border-radius: 50%; pointer-events: none; z-index: -1; animation: wikiia-onda 3s ease-out infinite; }
+@keyframes wikiia-onda { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .35); } 70%, 100% { box-shadow: 0 0 0 14px rgba(16, 185, 129, 0); } }
+.st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 74px; bottom: 13px;
+  white-space: nowrap; padding: 8px 14px; border-radius: 999px; background: #fff; color: #064e3b; font-weight: 600;
+  font-size: .88rem; border: 1px solid rgba(16, 185, 129, .25); box-shadow: 0 8px 22px rgba(0, 0, 0, .12);
+  pointer-events: none; opacity: 0; animation: wikiia-globo 9s ease 2s forwards; }
 @keyframes wikiia-globo { 0% { opacity: 0; transform: translateX(8px); } 8%, 85% { opacity: 1; transform: none; }
   100% { opacity: 0; } }
 
 /* ---- Ventana del chat (se dibuja fuera de la burbuja, en un popover: se ubica por la clase de su contenido) ---- */
 [data-testid="stPopoverBody"]:has(.st-key-ventana_guia) { width: min(410px, calc(100vw - 32px)) !important;
-  max-width: calc(100vw - 32px) !important; border-radius: 18px !important; border-top: 4px solid #22c55e !important;
+  max-width: calc(100vw - 32px) !important; border-radius: 18px !important; border-top: 4px solid #10b981 !important;
   box-shadow: 0 18px 50px rgba(0, 0, 0, .28) !important; }
 /* Cada mensaje entra deslizándose; al pasar el mouse se ilumina en verde. */
 .st-key-ventana_guia [data-testid="stChatMessage"] { border-radius: 14px; padding: 6px 8px; border: 1px solid transparent;
   transition: box-shadow .2s ease, border-color .2s ease, background-color .2s ease;
   animation: wikiia-mensaje .38s ease-out both; }
-.st-key-ventana_guia [data-testid="stChatMessage"]:hover { border-color: rgba(34, 197, 94, .55);
-  background-color: rgba(34, 197, 94, .06); box-shadow: 0 0 0 3px rgba(34, 197, 94, .12), 0 8px 22px rgba(34, 197, 94, .2); }
+.st-key-ventana_guia [data-testid="stChatMessage"]:hover { border-color: rgba(16, 185, 129, .55);
+  background-color: rgba(16, 185, 129, .06); box-shadow: 0 0 0 3px rgba(16, 185, 129, .12), 0 8px 22px rgba(16, 185, 129, .2); }
 .st-key-ventana_guia [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] { animation: wikiia-aparece .4s ease-out both; }
 @keyframes wikiia-mensaje { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes wikiia-aparece { from { opacity: 0; } to { opacity: 1; } }
 /* Respuestas rápidas: se levantan y se iluminan al pasar el mouse. */
 .st-key-ventana_guia [data-testid="stChatMessage"] button { border-radius: 999px !important; transition: all .18s ease; }
-.st-key-ventana_guia [data-testid="stChatMessage"] button:hover { border-color: #22c55e !important; color: #15803d !important;
-  transform: translateY(-2px); box-shadow: 0 0 0 3px rgba(34, 197, 94, .18), 0 6px 14px rgba(34, 197, 94, .25); }
+.st-key-ventana_guia [data-testid="stChatMessage"] button:hover { border-color: #10b981 !important; color: #047857 !important;
+  transform: translateY(-2px); box-shadow: 0 0 0 3px rgba(16, 185, 129, .18), 0 6px 14px rgba(16, 185, 129, .25); }
 /* "Escribiendo…": tres puntos que saltan mientras la guía piensa. */
 .wikiia-escribiendo { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; border-radius: 16px;
-  background: rgba(34, 197, 94, .12); animation: wikiia-aparece .3s ease-out both; }
-.wikiia-escribiendo span { width: 8px; height: 8px; border-radius: 50%; background: #16a34a;
+  background: rgba(16, 185, 129, .12); animation: wikiia-aparece .3s ease-out both; }
+.wikiia-escribiendo span { width: 8px; height: 8px; border-radius: 50%; background: #10b981;
   animation: wikiia-punto 1.2s ease-in-out infinite; }
 .wikiia-escribiendo span:nth-child(2) { animation-delay: .15s; }
 .wikiia-escribiendo span:nth-child(3) { animation-delay: .3s; }
-.wikiia-escribiendo em { margin-left: 6px; font-size: .85rem; color: #15803d; font-style: normal; }
+.wikiia-escribiendo em { margin-left: 6px; font-size: .85rem; color: #047857; font-style: normal; }
 @keyframes wikiia-punto { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-6px); opacity: 1; } }
+.wikiia-cabecera { display: flex; align-items: center; gap: 12px; margin: -4px 0 6px; }
+.wikiia-cabecera .w { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 50%;
+  color: #fff; font-weight: 800; font-size: 20px; letter-spacing: -.5px;
+  background: linear-gradient(140deg, #34d399 0%, #10b981 45%, #047857 100%); box-shadow: 0 6px 14px -4px rgba(4, 120, 87, .55); }
+.wikiia-cabecera b { display: block; font-size: 1.05rem; line-height: 1.2; }
+.wikiia-cabecera small { display: flex; align-items: center; gap: 6px; opacity: .7; font-size: .8rem; }
+.wikiia-cabecera small::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, .2); }
 @media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 72px; }
   .st-key-burbuja_chat::before { display: none; } }
 </style>"""
-AVATAR_GUIA, AVATAR_PERSONA = "🧭", "🙂"
+_SVG_W = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" '
+          'x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset=".45" stop-color="#10b981"/>'
+          '<stop offset="1" stop-color="#047857"/></linearGradient></defs><circle cx="32" cy="32" r="32" fill="url(#g)"/>'
+          '<text x="32" y="43" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" '
+          'font-weight="900" fill="#fff">W</text></svg>')
+AVATAR_GUIA = "data:image/svg+xml;base64," + base64.b64encode(_SVG_W.encode()).decode()
+AVATAR_PERSONA = "🙂"
+CABECERA_GUIA = ('<div class="wikiia-cabecera"><span class="w">W</span><div><b>Guía WikiIA</b>'
+                 '<small>en línea · te ayudo a elegir modelo</small></div></div>')
 ESCRIBIENDO = ('<div class="wikiia-escribiendo"><span></span><span></span><span></span>'
                '<em>escribiendo…</em></div>')
 
@@ -932,9 +944,9 @@ def _guia_chat(clave: str) -> None:
 
 with st.container(key="burbuja_chat"):
     st.html(CSS_BURBUJA)
-    with st.popover("🧭", help="Tu guía para elegir modelo"):
+    with st.popover("W", help="Tu guía para elegir modelo"):
         with st.container(key="ventana_guia"):
-            st.markdown("#### 🧭 Tu guía de WikiIA")
+            st.html(CABECERA_GUIA)
             clave_guia = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)
             if clave_guia:
                 _guia_chat(clave_guia)

@@ -1,14 +1,19 @@
 # Publica en GitHub Pages el calendario de lanzamientos (wikiia.ics) y su página.
 # Corre solo cada vez que haces git push con la base o el código cambiados, o a mano desde la pestaña Actions.
 # Requisito (una sola vez): Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# OJO: si Source queda en "Deploy from a branch", GitHub publica el repo tal cual DESPUÉS de este workflow
+# y el calendario desaparece (wikiia.ics da 404).
 name: Publicar calendario
 
 on:
   push:
     branches: [main]
-    paths:
+    paths:  # solo lo que cambia el calendario (no cada cambio de versión de la app)
       - "wikiia.db"
-      - "wikiia/**"
+      - "wikiia/calendario.py"
+      - "wikiia/heuristicas.py"
+      - "wikiia/db.py"
+      - "wikiia/config.py"
       - ".github/workflows/calendario.yml"
   workflow_dispatch:
 

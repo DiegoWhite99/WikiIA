@@ -791,38 +791,65 @@ CSS_BURBUJA = """<style>
 /* Más arriba que la esquina: en Streamlit Cloud ahí está el botón "Manage app". */
 .st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 76px; z-index: 999990; width: auto !important;
   overflow: visible !important; }
-/* Botón 3D: degradado con brillo arriba a la izquierda, sombra interna y un "canto" inferior que se hunde al tocarlo. */
+/* Botón 3D verde: degradado con brillo arriba a la izquierda, sombra interna y un "canto" que se hunde al tocarlo. */
 .st-key-burbuja_chat button { width: 64px; height: 64px; min-height: 64px; padding: 0 !important; border-radius: 50% !important;
   border: none !important; color: #fff !important;
-  background: radial-gradient(circle at 32% 26%, #ff9a9a 0%, #ff5a5a 38%, #e3262d 72%, #b3141b 100%) !important;
-  box-shadow: inset 0 -6px 10px rgba(90, 0, 0, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
-    0 6px 0 #8f1016, 0 14px 22px rgba(0, 0, 0, .35) !important;
+  background: radial-gradient(circle at 32% 26%, #a7f3c4 0%, #34d47f 38%, #16a34a 72%, #0f7a37 100%) !important;
+  box-shadow: inset 0 -6px 10px rgba(0, 60, 20, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
+    0 6px 0 #0b5c2a, 0 14px 22px rgba(0, 0, 0, .35) !important;
   transform: translateY(0); transition: transform .15s ease, box-shadow .15s ease; }
 .st-key-burbuja_chat button:hover { transform: translateY(-3px);
-  box-shadow: inset 0 -6px 10px rgba(90, 0, 0, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
-    0 9px 0 #8f1016, 0 20px 28px rgba(0, 0, 0, .35) !important; }
+  box-shadow: inset 0 -6px 10px rgba(0, 60, 20, .35), inset 0 5px 8px rgba(255, 255, 255, .45),
+    0 9px 0 #0b5c2a, 0 20px 28px rgba(0, 0, 0, .35) !important; }
 .st-key-burbuja_chat button:active { transform: translateY(5px);
-  box-shadow: inset 0 -4px 8px rgba(90, 0, 0, .4), inset 0 4px 6px rgba(255, 255, 255, .35),
-    0 1px 0 #8f1016, 0 5px 10px rgba(0, 0, 0, .3) !important; }
-.st-key-burbuja_chat button p { font-size: 29px !important; line-height: 1; margin: 0;
+  box-shadow: inset 0 -4px 8px rgba(0, 60, 20, .4), inset 0 4px 6px rgba(255, 255, 255, .35),
+    0 1px 0 #0b5c2a, 0 5px 10px rgba(0, 0, 0, .3) !important; }
+.st-key-burbuja_chat button p { font-size: 30px !important; line-height: 1; margin: 0;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
 .st-key-burbuja_chat button [data-testid="stIconMaterial"] { display: none; }
 /* Onda que late alrededor (en un pseudo-elemento, para no pisar las sombras 3D). */
 .st-key-burbuja_chat::after { content: ""; position: absolute; right: 0; bottom: 0; width: 64px; height: 64px;
   border-radius: 50%; pointer-events: none; z-index: -1; animation: wikiia-onda 2.4s ease-out infinite; }
-@keyframes wikiia-onda { 0% { box-shadow: 0 0 0 0 rgba(255, 75, 75, .55); } 70%, 100% { box-shadow: 0 0 0 16px rgba(255, 75, 75, 0); } }
+@keyframes wikiia-onda { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70%, 100% { box-shadow: 0 0 0 16px rgba(34, 197, 94, 0); } }
 .st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 78px; bottom: 16px;
   white-space: nowrap; padding: 8px 12px; border-radius: 12px; background: #fff; color: #1f2130; font-weight: 600;
   font-size: .9rem; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); pointer-events: none; opacity: 0;
   animation: wikiia-globo 9s ease 2s forwards; }
 @keyframes wikiia-globo { 0% { opacity: 0; transform: translateX(8px); } 8%, 85% { opacity: 1; transform: none; }
   100% { opacity: 0; } }
-/* La ventana se dibuja fuera de la burbuja (en un popover de Streamlit): se ubica por la clase de su contenido. */
+
+/* ---- Ventana del chat (se dibuja fuera de la burbuja, en un popover: se ubica por la clase de su contenido) ---- */
 [data-testid="stPopoverBody"]:has(.st-key-ventana_guia) { width: min(410px, calc(100vw - 32px)) !important;
-  max-width: calc(100vw - 32px) !important; border-radius: 18px !important; box-shadow: 0 18px 50px rgba(0, 0, 0, .28) !important; }
+  max-width: calc(100vw - 32px) !important; border-radius: 18px !important; border-top: 4px solid #22c55e !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28) !important; }
+/* Cada mensaje entra deslizándose; al pasar el mouse se ilumina en verde. */
+.st-key-ventana_guia [data-testid="stChatMessage"] { border-radius: 14px; padding: 6px 8px; border: 1px solid transparent;
+  transition: box-shadow .2s ease, border-color .2s ease, background-color .2s ease;
+  animation: wikiia-mensaje .38s ease-out both; }
+.st-key-ventana_guia [data-testid="stChatMessage"]:hover { border-color: rgba(34, 197, 94, .55);
+  background-color: rgba(34, 197, 94, .06); box-shadow: 0 0 0 3px rgba(34, 197, 94, .12), 0 8px 22px rgba(34, 197, 94, .2); }
+.st-key-ventana_guia [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] { animation: wikiia-aparece .4s ease-out both; }
+@keyframes wikiia-mensaje { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes wikiia-aparece { from { opacity: 0; } to { opacity: 1; } }
+/* Respuestas rápidas: se levantan y se iluminan al pasar el mouse. */
+.st-key-ventana_guia [data-testid="stChatMessage"] button { border-radius: 999px !important; transition: all .18s ease; }
+.st-key-ventana_guia [data-testid="stChatMessage"] button:hover { border-color: #22c55e !important; color: #15803d !important;
+  transform: translateY(-2px); box-shadow: 0 0 0 3px rgba(34, 197, 94, .18), 0 6px 14px rgba(34, 197, 94, .25); }
+/* "Escribiendo…": tres puntos que saltan mientras la guía piensa. */
+.wikiia-escribiendo { display: inline-flex; align-items: center; gap: 5px; padding: 10px 14px; border-radius: 16px;
+  background: rgba(34, 197, 94, .12); animation: wikiia-aparece .3s ease-out both; }
+.wikiia-escribiendo span { width: 8px; height: 8px; border-radius: 50%; background: #16a34a;
+  animation: wikiia-punto 1.2s ease-in-out infinite; }
+.wikiia-escribiendo span:nth-child(2) { animation-delay: .15s; }
+.wikiia-escribiendo span:nth-child(3) { animation-delay: .3s; }
+.wikiia-escribiendo em { margin-left: 6px; font-size: .85rem; color: #15803d; font-style: normal; }
+@keyframes wikiia-punto { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-6px); opacity: 1; } }
 @media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 72px; }
   .st-key-burbuja_chat::before { display: none; } }
 </style>"""
+AVATAR_GUIA, AVATAR_PERSONA = "🧭", "🙂"
+ESCRIBIENDO = ('<div class="wikiia-escribiendo"><span></span><span></span><span></span>'
+               '<em>escribiendo…</em></div>')
 
 
 def _olvidar_clave() -> None:
@@ -866,7 +893,8 @@ def _guia_chat(clave: str) -> None:
         for i, mensaje in enumerate(conversacion):
             cuerpo, opciones = separar_opciones(mensaje["content"]) if mensaje["role"] == "assistant" else (
                 mensaje["content"], [])
-            with st.chat_message(mensaje["role"]):
+            avatar = AVATAR_GUIA if mensaje["role"] == "assistant" else AVATAR_PERSONA
+            with st.chat_message(mensaje["role"], avatar=avatar):
                 _mostrar(cuerpo)
                 if opciones and i == len(conversacion) - 1:  # respuestas rápidas solo en la última pregunta
                     with st.container(horizontal=True, gap="small"):
@@ -882,26 +910,29 @@ def _guia_chat(clave: str) -> None:
     if pregunta:
         conversacion.append({"role": "user", "content": pregunta})
         with mensajes:
-            with st.chat_message("user"):
+            with st.chat_message("user", avatar=AVATAR_PERSONA):
                 _mostrar(pregunta)
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar=AVATAR_GUIA):
+                escribiendo = st.empty()
+                escribiendo.html(ESCRIBIENDO)  # se ve mientras Groq responde
                 try:
-                    with st.spinner("Pensando y buscando en WikiIA…"):
-                        respuesta = responder(clave, cfg.groq_modelo, conversacion, modelos)
+                    respuesta = responder(clave, cfg.groq_modelo, conversacion, modelos)
                     conversacion.append({"role": "assistant", "content": respuesta})
                     st.rerun()  # redibuja para mostrar los botones de respuesta rápida
                 except ClaveInvalida as e:
+                    escribiendo.empty()
                     conversacion.pop()
                     st.session_state.pop("groq_clave", None)
                     st.error(str(e))
                 except ErrorChat as e:
+                    escribiendo.empty()
                     conversacion.pop()
                     st.error(str(e))
 
 
 with st.container(key="burbuja_chat"):
     st.html(CSS_BURBUJA)
-    with st.popover("💬", help="Tu guía para elegir modelo"):
+    with st.popover("🧭", help="Tu guía para elegir modelo"):
         with st.container(key="ventana_guia"):
             st.markdown("#### 🧭 Tu guía de WikiIA")
             clave_guia = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)

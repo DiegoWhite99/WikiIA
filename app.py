@@ -800,9 +800,11 @@ CSS_BURBUJA = """<style>
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 18px 34px -6px rgba(4, 120, 87, .7), 0 6px 14px rgba(0, 0, 0, .14) !important; }
 .st-key-burbuja_chat button:active { transform: scale(.95); }
 .st-key-burbuja_chat button p { margin: 0; font-family: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
-  font-size: 30px !important; font-weight: 800 !important; line-height: 1; letter-spacing: -1px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .18); }
-.st-key-burbuja_chat button [data-testid="stIconMaterial"] { display: none; }
+  font-size: 30px !important; font-weight: 800 !important; line-height: 1; letter-spacing: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .18); transform: translateY(2px); /* la W no tiene descendente: centro óptico */ }
+/* Centrar la W: Streamlit reserva 16 px (y un margen de -5 px) para la flechita del popover aunque esté oculta. */
+.st-key-burbuja_chat button > div { margin: 0 !important; width: 100%; justify-content: center !important; }
+.st-key-burbuja_chat button div:has(> span > [data-testid="stIconMaterial"]) { display: none !important; }
 /* Onda suave que late alrededor. */
 .st-key-burbuja_chat::after { content: ""; position: absolute; right: 0; bottom: 0; width: 60px; height: 60px;
   border-radius: 50%; pointer-events: none; z-index: -1; animation: wikiia-onda 3s ease-out infinite; }

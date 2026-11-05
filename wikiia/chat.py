@@ -97,13 +97,22 @@ SALUDO = ("¡Hola! 👋 Soy tu guía de WikiIA. Te hago unas preguntas rápidas 
 _RE_OPCIONES = re.compile(r"^[\s*_>`-]*OPCIONES[\s*_]*:\s*(.+?)[\s*_`]*$", re.I)
 
 
+def _limpiar_opcion(opcion: str) -> str:
+    """Quita adornos de markdown y cierres sueltos ("Nada más]"), sin romper "En mi PC (local)"."""
+    opcion = opcion.strip(" *_`\"'.")
+    for abre, cierra in (("[", "]"), ("(", ")")):
+        if opcion.endswith(cierra) and abre not in opcion:
+            opcion = opcion[:-1].rstrip()
+    return opcion
+
+
 def separar_opciones(mensaje: str) -> tuple[str, list[str]]:
     """Quita la línea 'OPCIONES: a | b | c' del final y devuelve (texto, opciones) para mostrarlas como botones."""
     lineas = (mensaje or "").rstrip().splitlines()
     if lineas:
         coincidencia = _RE_OPCIONES.match(lineas[-1])
         if coincidencia:
-            opciones = [o.strip(" *_`[]()\"'.") for o in coincidencia.group(1).split("|")]
+            opciones = [_limpiar_opcion(o) for o in coincidencia.group(1).split("|")]
             return "\n".join(lineas[:-1]).rstrip(), [o for o in opciones if o][:6]
     return mensaje, []
 

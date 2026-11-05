@@ -468,10 +468,10 @@ def pasos_tour() -> list[dict]:
         paso('[data-testid="stTabs"] [role="tablist"]', "🗂️ Las pestañas",
              "Cambia la vista: <b>por país</b>, el <b>ranking</b> general, <b>por empresa</b>, las "
              "<b>novedades</b> del mes y las <b>estadísticas</b>.", barra=False),
-        paso('[data-testid="stTabs"] [role="tab"]:nth-of-type(6)', "🧭 ¿No sabes cuál elegir?",
-             "Aquí una guía con IA te pregunta <b>qué quieres lograr</b>, si lo quieres <b>en tu computador o en "
-             "la nube</b> y con qué equipo cuentas, y te <b>recomienda el modelo ideal</b>. Funciona con tu propia "
-             "clave gratis de Groq.", barra=False),
+        paso(".st-key-burbuja_chat", "🧭 ¿No sabes cuál elegir?",
+             "Toca esta burbuja cuando quieras: una guía con IA te pregunta <b>qué quieres lograr</b>, si lo "
+             "quieres <b>en tu computador o en la nube</b> y con qué equipo cuentas, y te <b>recomienda el modelo "
+             "ideal</b>. Funciona con tu propia clave gratis de Groq.", barra=False, lado="left"),
         paso('[data-testid="stExpander"]', "🌍 Cada país es una sección",
              "Ábrela para ver su tabla. Ahí, toca el <b>nombre</b> de un modelo para abrir su página, "
              "o marca la <b>casilla</b> de la fila para ver su ficha completa.", barra=False),
@@ -633,8 +633,8 @@ if sin_leer:
     st.info(f"🔔 Tienes **{sin_leer}** alertas sin leer: revisa la pestaña **Novedades**.")
 
 nombres_tabs = ["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
-                "📊 Estadísticas", "🧭 ¿Qué modelo uso?"] + ([] if PUBLICO else ["⚙️ Configuración"])
-tab_pais, tab_rank, tab_emp, tab_nov, tab_est, tab_chat, *tab_admin = st.tabs(nombres_tabs)
+                "📊 Estadísticas"] + ([] if PUBLICO else ["⚙️ Configuración"])
+tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_admin = st.tabs(nombres_tabs)
 
 # ---------- por país ----------
 with tab_pais:
@@ -783,11 +783,40 @@ with tab_est:
             ).properties(height=260),
             width="stretch")
 
-# ---------- guía con IA ----------
-# Entrevista al visitante y le recomienda un modelo. Público: cada visitante usa SU clave de Groq, guardada solo
-# en st.session_state (nunca en disco ni en st.cache_*, que se comparte entre visitantes). En tu PC: la del .env.
+# ---------- guía con IA: burbuja flotante ----------
+# Burbuja abajo a la derecha (en todas las pestañas) que abre una ventana de chat: entrevista al visitante y le
+# recomienda un modelo. Público: cada visitante usa SU clave de Groq, guardada solo en st.session_state (nunca en
+# disco ni en st.cache_*, que se comparte entre visitantes). En tu PC: la del .env.
+CSS_BURBUJA = """<style>
+.st-key-burbuja_chat { position: fixed !important; right: 24px; bottom: 24px; z-index: 999990; width: auto !important; }
+.st-key-burbuja_chat button { width: 62px; height: 62px; min-height: 62px; padding: 0 !important; border-radius: 50% !important;
+  border: none !important; background: #ff4b4b !important; color: #fff !important;
+  animation: wikiia-latido 2.4s ease-in-out infinite; }
+.st-key-burbuja_chat button p { font-size: 28px !important; line-height: 1; margin: 0; }
+.st-key-burbuja_chat button [data-testid="stIconMaterial"] { display: none; }
+@keyframes wikiia-latido {
+  0%, 100% { box-shadow: 0 8px 24px rgba(255, 75, 75, .45), 0 0 0 0 rgba(255, 75, 75, .45); }
+  50% { box-shadow: 0 8px 24px rgba(255, 75, 75, .45), 0 0 0 12px rgba(255, 75, 75, 0); } }
+.st-key-burbuja_chat::before { content: "¿Te ayudo a elegir modelo? 👋"; position: absolute; right: 74px; bottom: 14px;
+  white-space: nowrap; padding: 8px 12px; border-radius: 12px; background: #fff; color: #1f2130; font-weight: 600;
+  font-size: .9rem; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); pointer-events: none; opacity: 0;
+  animation: wikiia-globo 9s ease 2s forwards; }
+@keyframes wikiia-globo { 0% { opacity: 0; transform: translateX(8px); } 8%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; } }
+/* La ventana se dibuja fuera de la burbuja (en un popover de Streamlit): se ubica por la clase de su contenido. */
+[data-testid="stPopoverBody"]:has(.st-key-ventana_guia) { width: min(410px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important; border-radius: 18px !important; box-shadow: 0 18px 50px rgba(0, 0, 0, .28) !important; }
+@media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 16px; }
+  .st-key-burbuja_chat::before { display: none; } }
+</style>"""
+
+
 def _olvidar_clave() -> None:
     st.session_state.pop("groq_clave", None)
+    st.session_state.pop("chat", None)
+
+
+def _empezar_de_nuevo() -> None:
     st.session_state.pop("chat", None)
 
 
@@ -795,53 +824,50 @@ def _mostrar(texto_md: str) -> None:
     st.markdown(texto_md.replace("$", r"\$"))  # "$4 / $20" no es una fórmula matemática
 
 
-with tab_chat:
-    clave = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)
-    st.subheader("🧭 Tu guía para elegir modelo")
-    if not clave:
-        st.markdown("Te pregunto **qué quieres lograr**, si lo quieres **en tu computador o en la nube** y con qué "
-                    "equipo cuentas, y te recomiendo el modelo ideal con los pasos para empezar.\n\n"
-                    "Funciona con **tu propia clave gratis de Groq**:")
-        st.markdown("1. Crea tu cuenta gratis en **[console.groq.com](https://console.groq.com)** "
-                    "(con Google, GitHub o tu correo).\n"
-                    "2. Entra a **[API Keys](https://console.groq.com/keys)** → **Create API Key** y copia la clave "
-                    "(empieza por `gsk_`).\n"
-                    "3. Pégala aquí:")
-        with st.form("form_clave_groq", border=False):
-            nueva = st.text_input("Tu clave de Groq", type="password", placeholder="gsk_…")
-            if st.form_submit_button("🔌 Conectar", type="primary"):
-                ok, detalle = validar_clave(nueva.strip(), cfg.groq_modelo)
-                if ok:
-                    st.session_state.groq_clave = nueva.strip()
-                    st.rerun()
-                st.error(detalle)
-        st.caption("🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
-                   "cerrarla. Solo viaja a Groq (cifrada por HTTPS) y las preguntas gastan tu cuota gratis de Groq.")
-    else:
-        conversacion = st.session_state.setdefault("chat", [])
-        if not conversacion:
-            conversacion.append({"role": "assistant", "content": SALUDO})
-        botones = st.container(horizontal=True)
-        if len(conversacion) > 1 and botones.button("🔄 Empezar de nuevo"):
-            conversacion.clear()
-            st.rerun()
-        if st.session_state.get("groq_clave"):
-            botones.button("🔒 Olvidar mi clave", on_click=_olvidar_clave)
+def _guia_sin_clave() -> None:
+    st.markdown("Te pregunto **qué quieres lograr**, si lo quieres **en tu computador o en la nube** y con qué "
+                "equipo cuentas, y te recomiendo el modelo ideal.\n\nFunciona con **tu clave gratis de Groq**:\n"
+                "1. Crea tu cuenta en **[console.groq.com](https://console.groq.com)** (con Google, GitHub o correo).\n"
+                "2. Ve a **[API Keys](https://console.groq.com/keys)** → **Create API Key** y cópiala (empieza por `gsk_`).\n"
+                "3. Pégala aquí:")
+    with st.form("form_clave_groq", border=False):
+        nueva = st.text_input("Tu clave de Groq", type="password", placeholder="gsk_…", label_visibility="collapsed")
+        if st.form_submit_button("🔌 Conectar", type="primary", width="stretch"):
+            ok, detalle = validar_clave(nueva.strip(), cfg.groq_modelo)
+            if ok:
+                st.session_state.groq_clave = nueva.strip()
+                st.rerun()
+            st.error(detalle)
+    st.caption("🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
+               "cerrarla. Solo viaja a Groq (cifrada por HTTPS).")
 
-        pregunta = None
+
+def _guia_chat(clave: str) -> None:
+    conversacion = st.session_state.setdefault("chat", [])
+    if not conversacion:
+        conversacion.append({"role": "assistant", "content": SALUDO})
+    pregunta = None
+    mensajes = st.container(height=380, border=False, autoscroll=True)
+    with mensajes:
         for i, mensaje in enumerate(conversacion):
             cuerpo, opciones = separar_opciones(mensaje["content"]) if mensaje["role"] == "assistant" else (
                 mensaje["content"], [])
             with st.chat_message(mensaje["role"]):
                 _mostrar(cuerpo)
                 if opciones and i == len(conversacion) - 1:  # respuestas rápidas solo en la última pregunta
-                    with st.container(horizontal=True):
+                    with st.container(horizontal=True, gap="small"):
                         for j, opcion in enumerate(opciones):
                             if st.button(opcion, key=f"opcion_{len(conversacion)}_{j}"):
                                 pregunta = opcion
-        pregunta = st.chat_input("Escribe tu respuesta o tu pregunta…") or pregunta
-        if pregunta:
-            conversacion.append({"role": "user", "content": pregunta})
+    pregunta = st.chat_input("Escribe tu respuesta…", key="entrada_guia") or pregunta
+    with st.container(horizontal=True, gap="small"):
+        if len(conversacion) > 1:
+            st.button("🔄 Empezar de nuevo", type="tertiary", on_click=_empezar_de_nuevo)
+        if st.session_state.get("groq_clave"):
+            st.button("🔒 Olvidar mi clave", type="tertiary", on_click=_olvidar_clave)
+    if pregunta:
+        conversacion.append({"role": "user", "content": pregunta})
+        with mensajes:
             with st.chat_message("user"):
                 _mostrar(pregunta)
             with st.chat_message("assistant"):
@@ -857,6 +883,18 @@ with tab_chat:
                 except ErrorChat as e:
                     conversacion.pop()
                     st.error(str(e))
+
+
+with st.container(key="burbuja_chat"):
+    st.html(CSS_BURBUJA)
+    with st.popover("💬", help="Tu guía para elegir modelo"):
+        with st.container(key="ventana_guia"):
+            st.markdown("#### 🧭 Tu guía de WikiIA")
+            clave_guia = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)
+            if clave_guia:
+                _guia_chat(clave_guia)
+            else:
+                _guia_sin_clave()
 
 # ---------- tour guiado (primera visita) ----------
 # Se envía una vez por sesión si el navegador no trae la cookie; tour.js la vuelve a revisar antes de empezar.

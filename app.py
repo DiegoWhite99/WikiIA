@@ -574,10 +574,15 @@ MARCA_LOGIN = ('<div class="wikiia-marca"><span class="w">W</span><h1>WikiIA</h1
 
 
 @st.cache_resource(show_spinner=False)
+def _cuentas(url: str, secreto: str) -> Cuentas:
+    """Se comparte entre visitantes, pero no guarda nada de nadie (solo la dirección de la base y la llave para
+    cifrar). Depende de los dos valores: si cambian los Secrets, se crea de nuevo sin reiniciar la app."""
+    return Cuentas(url, secreto)
+
+
 def cuentas() -> Cuentas | None:
-    """Cuentas en PostgreSQL. None si faltan DATABASE_URL o WIKIIA_SECRETO. Se comparte entre visitantes, pero no
-    guarda nada de nadie (solo la conexión y la llave para cifrar)."""
-    return Cuentas.desde_config(cfg)
+    """Cuentas en PostgreSQL, o None si faltan DATABASE_URL o WIKIIA_SECRETO (se revisa en cada visita)."""
+    return _cuentas(cfg.database_url, cfg.secreto) if cfg.database_url and cfg.secreto else None
 
 
 def _iniciar_sesion(usuario: Usuario, token: str, escribir: bool = True) -> None:

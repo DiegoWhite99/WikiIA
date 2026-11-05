@@ -75,6 +75,11 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
   la app en una ventana de incógnito.
 - **Avisos**: el recuadro "¿Quieres enterarte?" aparece cuando el calendario ya está publicado. Con
   `TELEGRAM_CANAL_URL` aparece también el botón del canal de Telegram.
+- **Guía con IA** (pestaña 🧭 ¿Qué modelo uso?): entrevista al visitante (qué quiere lograr, local o nube,
+  su computador, presupuesto) y le recomienda un modelo del catálogo con los pasos para empezar. La IA busca
+  con la herramienta `buscar_modelos` (`wikiia/chat.py`) en vez de responder de memoria. En la nube cada
+  visitante pone **su propia clave gratis de Groq**, que solo vive en su sesión (no se guarda en ningún lado);
+  en tu PC usa la de tu `.env`.
 - **Calendario a mano**: `.venv/bin/python -m wikiia.calendario --carpeta _site`
 
 Para que el workflow pueda publicar (una sola vez): en GitHub, **Settings → Pages → Build and deployment →

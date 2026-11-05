@@ -19,6 +19,7 @@ from wikiia import db
 from wikiia.actualizador import ejecutar
 from wikiia.alertas import enviar as enviar_alerta, texto_precio
 from wikiia.calendario import enlaces_suscripcion
+from wikiia.chat import SALUDO, ClaveInvalida, ErrorChat, responder, separar_opciones, validar_clave
 from wikiia.config import DB_RUTA, cargar_config, es_publico, perfil_equipo
 from wikiia.heuristicas import (
     ETIQUETA_ACCESO, ETIQUETA_POTENCIA, ETIQUETAS_CAP, ICONO_CAP,
@@ -467,6 +468,10 @@ def pasos_tour() -> list[dict]:
         paso('[data-testid="stTabs"] [role="tablist"]', "🗂️ Las pestañas",
              "Cambia la vista: <b>por país</b>, el <b>ranking</b> general, <b>por empresa</b>, las "
              "<b>novedades</b> del mes y las <b>estadísticas</b>.", barra=False),
+        paso('[data-testid="stTabs"] [role="tab"]:nth-of-type(6)', "🧭 ¿No sabes cuál elegir?",
+             "Aquí una guía con IA te pregunta <b>qué quieres lograr</b>, si lo quieres <b>en tu computador o en "
+             "la nube</b> y con qué equipo cuentas, y te <b>recomienda el modelo ideal</b>. Funciona con tu propia "
+             "clave gratis de Groq.", barra=False),
         paso('[data-testid="stExpander"]', "🌍 Cada país es una sección",
              "Ábrela para ver su tabla. Ahí, toca el <b>nombre</b> de un modelo para abrir su página, "
              "o marca la <b>casilla</b> de la fila para ver su ficha completa.", barra=False),
@@ -628,8 +633,8 @@ if sin_leer:
     st.info(f"🔔 Tienes **{sin_leer}** alertas sin leer: revisa la pestaña **Novedades**.")
 
 nombres_tabs = ["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
-                "📊 Estadísticas"] + ([] if PUBLICO else ["⚙️ Configuración"])
-tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_admin = st.tabs(nombres_tabs)
+                "📊 Estadísticas", "🧭 ¿Qué modelo uso?"] + ([] if PUBLICO else ["⚙️ Configuración"])
+tab_pais, tab_rank, tab_emp, tab_nov, tab_est, tab_chat, *tab_admin = st.tabs(nombres_tabs)
 
 # ---------- por país ----------
 with tab_pais:
@@ -777,6 +782,81 @@ with tab_est:
                 tooltip=[alt.Tooltip("yearmonth(mes):T", title="Mes"), alt.Tooltip("modelos:Q", title="Modelos")],
             ).properties(height=260),
             width="stretch")
+
+# ---------- guía con IA ----------
+# Entrevista al visitante y le recomienda un modelo. Público: cada visitante usa SU clave de Groq, guardada solo
+# en st.session_state (nunca en disco ni en st.cache_*, que se comparte entre visitantes). En tu PC: la del .env.
+def _olvidar_clave() -> None:
+    st.session_state.pop("groq_clave", None)
+    st.session_state.pop("chat", None)
+
+
+def _mostrar(texto_md: str) -> None:
+    st.markdown(texto_md.replace("$", r"\$"))  # "$4 / $20" no es una fórmula matemática
+
+
+with tab_chat:
+    clave = st.session_state.get("groq_clave") or ("" if PUBLICO else cfg.groq_api_key)
+    st.subheader("🧭 Tu guía para elegir modelo")
+    if not clave:
+        st.markdown("Te pregunto **qué quieres lograr**, si lo quieres **en tu computador o en la nube** y con qué "
+                    "equipo cuentas, y te recomiendo el modelo ideal con los pasos para empezar.\n\n"
+                    "Funciona con **tu propia clave gratis de Groq**:")
+        st.markdown("1. Crea tu cuenta gratis en **[console.groq.com](https://console.groq.com)** "
+                    "(con Google, GitHub o tu correo).\n"
+                    "2. Entra a **[API Keys](https://console.groq.com/keys)** → **Create API Key** y copia la clave "
+                    "(empieza por `gsk_`).\n"
+                    "3. Pégala aquí:")
+        with st.form("form_clave_groq", border=False):
+            nueva = st.text_input("Tu clave de Groq", type="password", placeholder="gsk_…")
+            if st.form_submit_button("🔌 Conectar", type="primary"):
+                ok, detalle = validar_clave(nueva.strip(), cfg.groq_modelo)
+                if ok:
+                    st.session_state.groq_clave = nueva.strip()
+                    st.rerun()
+                st.error(detalle)
+        st.caption("🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
+                   "cerrarla. Solo viaja a Groq (cifrada por HTTPS) y las preguntas gastan tu cuota gratis de Groq.")
+    else:
+        conversacion = st.session_state.setdefault("chat", [])
+        if not conversacion:
+            conversacion.append({"role": "assistant", "content": SALUDO})
+        botones = st.container(horizontal=True)
+        if len(conversacion) > 1 and botones.button("🔄 Empezar de nuevo"):
+            conversacion.clear()
+            st.rerun()
+        if st.session_state.get("groq_clave"):
+            botones.button("🔒 Olvidar mi clave", on_click=_olvidar_clave)
+
+        pregunta = None
+        for i, mensaje in enumerate(conversacion):
+            cuerpo, opciones = separar_opciones(mensaje["content"]) if mensaje["role"] == "assistant" else (
+                mensaje["content"], [])
+            with st.chat_message(mensaje["role"]):
+                _mostrar(cuerpo)
+                if opciones and i == len(conversacion) - 1:  # respuestas rápidas solo en la última pregunta
+                    with st.container(horizontal=True):
+                        for j, opcion in enumerate(opciones):
+                            if st.button(opcion, key=f"opcion_{len(conversacion)}_{j}"):
+                                pregunta = opcion
+        pregunta = st.chat_input("Escribe tu respuesta o tu pregunta…") or pregunta
+        if pregunta:
+            conversacion.append({"role": "user", "content": pregunta})
+            with st.chat_message("user"):
+                _mostrar(pregunta)
+            with st.chat_message("assistant"):
+                try:
+                    with st.spinner("Pensando y buscando en WikiIA…"):
+                        respuesta = responder(clave, cfg.groq_modelo, conversacion, modelos)
+                    conversacion.append({"role": "assistant", "content": respuesta})
+                    st.rerun()  # redibuja para mostrar los botones de respuesta rápida
+                except ClaveInvalida as e:
+                    conversacion.pop()
+                    st.session_state.pop("groq_clave", None)
+                    st.error(str(e))
+                except ErrorChat as e:
+                    conversacion.pop()
+                    st.error(str(e))
 
 # ---------- tour guiado (primera visita) ----------
 # Se envía una vez por sesión si el navegador no trae la cookie; tour.js la vuelve a revisar antes de empezar.

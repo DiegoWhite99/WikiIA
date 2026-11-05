@@ -83,8 +83,8 @@ COLUMNAS_TABLA = {
     "estrellas": st.column_config.TextColumn(
         "Potencia", help="★★★★★ Frontera · ★★★★ Alto · ★★★ Medio · ★★ Ligero · ★ Básico. Con «Índice IA» está medida "
                          "con un benchmark; sin índice es una estimación de WikiIA (máximo ★★★★)."),
-    "indice_ia": st.column_config.NumberColumn(
-        "Índice IA", format="%.0f",
+    "indice_txt": st.column_config.TextColumn(
+        "Índice IA",
         help="Intelligence Index de Artificial Analysis: benchmark independiente que mide a todos los modelos con las "
              "mismas pruebas (más alto = más inteligente). Vacío = todavía sin medir."),
     "sirve_para": st.column_config.TextColumn(
@@ -125,6 +125,9 @@ def cargar_datos(marca: tuple):  # 'marca' cambia cuando la base cambia → reca
     modelos["empresa"] = modelos["empresa"].fillna(modelos["empresa_id"])
     modelos["pais_label"] = modelos["bandera"] + " " + modelos["pais"]
     modelos["potencia"] = modelos["potencia"].fillna(0).astype(int)
+    modelos["indice_ia"] = pd.to_numeric(modelos["indice_ia"], errors="coerce")
+    # Para la tabla: el número o "—" (Streamlit escribe "None" en las celdas numéricas vacías).
+    modelos["indice_txt"] = modelos["indice_ia"].map(lambda v: f"{v:.0f}" if pd.notna(v) else "—")
     modelos["acceso"] = modelos.apply(lambda f: acceso_real(f, rotos), axis=1)
     modelos["estrellas"] = modelos["potencia"].map(estrellas)
     modelos["acceso_label"] = modelos["acceso"].map(ETIQUETA_ACCESO).fillna("—")
@@ -931,7 +934,7 @@ with tab_pais:
                 st.warning(nota, icon="⚠️")
             st.markdown(" · ".join(f"**{e}** ({c})" for e, c in grupo["empresa"].value_counts().items()))
             tabla_con_ficha(grupo, f"pais_{grupo['pais_codigo'].iloc[0]}",
-                            ["modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio", "fecha_dt"])
+                            ["modelo", "estrellas", "indice_txt", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- ranking ----------
 with tab_rank:
@@ -941,7 +944,7 @@ with tab_rank:
                    "[Artificial Analysis](https://artificialanalysis.ai/) (benchmark independiente); después, los que "
                    "aún no tienen medición, con su potencia **estimada** por WikiIA.")
     tabla_con_ficha(df, "ranking",
-                    ["pais_label", "modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio",
+                    ["pais_label", "modelo", "estrellas", "indice_txt", "sirve_para", "acceso_label", "precio",
                      "fecha_dt"], alto=560)
 
 # ---------- por empresa ----------
@@ -967,7 +970,7 @@ with tab_emp:
         if enlace_ok(fila_emp["empresa_web"]):
             st.link_button(f"🔗 Web de {fila_emp['empresa']}", fila_emp["empresa_web"])
         tabla_con_ficha(grupo, f"empresa_{empresa_id}",
-                        ["modelo", "estrellas", "indice_ia", "sirve_para", "acceso_label", "precio", "fecha_dt"])
+                        ["modelo", "estrellas", "indice_txt", "sirve_para", "acceso_label", "precio", "fecha_dt"])
 
 # ---------- novedades ----------
 with tab_nov:

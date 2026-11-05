@@ -9,7 +9,7 @@ según el país de la empresa. Se actualiza sola en la nube cada 6 horas.
 |---|---|
 | 🚀 **App** | https://wikiia-bl3pec2wdfzvcxdg9jq5aw.streamlit.app/ (hay que crear una cuenta gratis) |
 | 📅 **Calendario de lanzamientos** | https://diegowhite99.github.io/WikiIA/ |
-| 🏷️ **Versión estable** | [`v2.1.0`](https://github.com/DiegoWhite99/WikiIA/tree/v2.1.0) · historial en [CHANGELOG.md](CHANGELOG.md) |
+| 🏷️ **Versión estable** | [`v2.1.1`](https://github.com/DiegoWhite99/WikiIA/tree/v2.1.1) · historial en [CHANGELOG.md](CHANGELOG.md) |
 
 Al 5 de noviembre de 2026: **983 modelos** de **85 empresas** en **14 países**.
 
@@ -199,7 +199,7 @@ wikiia.db                   catálogo (lo actualiza el robot)
 ## Versiones
 
 Versionado semántico (`MAYOR.MENOR.PARCHE`): cada cambio se publica con un tag anotado en GitHub.
-**La versión estable para revisión es `v2.1.0`**. Los cambios de cada versión están en
+**La versión estable para revisión es `v2.1.1`**. Los cambios de cada versión están en
 [CHANGELOG.md](CHANGELOG.md). Las dependencias están fijadas en `requirements.txt` con las versiones probadas.
 
 ## Límites conocidos

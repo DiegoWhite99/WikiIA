@@ -2,6 +2,10 @@
 
 WikiIA usa versionado semántico (`MAYOR.MENOR.PARCHE`). Cada versión es un tag anotado en GitHub.
 
+## v2.1.1
+
+- La columna «Índice IA» muestra «—» en lugar de «None» cuando un modelo aún no tiene medición.
+
 ## v2.1.0 — Ranking con benchmark real (2026-11-05)
 
 - El ranking «⭐ Más potentes» se ordena por el **Intelligence Index de Artificial Analysis** (benchmark

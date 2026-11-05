@@ -1,6 +1,8 @@
-"""Cuentas de WikiIA (correo + contraseña) guardadas en PostgreSQL.
+"""Cuentas de WikiIA guardadas en PostgreSQL: para entrar a la app web hay que iniciar sesión.
 
-Sirven para que cada visitante guarde SU clave de Groq una sola vez y la tenga cada vez que vuelva.
+Registro: nombre, correo y contraseña escrita dos veces. El correo es la llave de cada usuario (llave
+primaria de wikiia_usuarios y llave foránea de wikiia_sesiones). Cada persona guarda además SU clave de
+Groq una sola vez y la tiene cada vez que vuelve.
 - La contraseña nunca se guarda: solo su huella scrypt con sal (no se puede revertir).
 - La clave de Groq se guarda cifrada (Fernet) con WIKIIA_SECRETO, que vive fuera de la base.
 - La sesión se recuerda 30 días con una cookie que lleva un código al azar; en la base solo queda
@@ -11,7 +13,7 @@ Variables (en .env o en Settings → Secrets de Streamlit Cloud):
     DATABASE_URL    postgresql://usuario:contraseña@servidor/base?sslmode=require   (Neon, Supabase…)
     WIKIIA_SECRETO  texto largo al azar. Si lo cambias, las claves guardadas ya no abren y cada
                     persona tendrá que pegar la suya otra vez (las cuentas siguen funcionando).
-Sin esas dos variables la app funciona igual, pero la clave de Groq solo dura la sesión.
+Sin esas dos variables no se pide iniciar sesión (así funciona en tu PC) y la clave de Groq dura solo la sesión.
 """
 from __future__ import annotations
 
@@ -28,15 +30,16 @@ MAX_FALLOS = 5
 MINUTOS_BLOQUEO = 15
 MIN_CONTRASENA = 8
 MAX_CONTRASENA = 128
+MAX_NOMBRE = 80
 _RE_CORREO = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s.]{2,}$")
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS wikiia_usuarios (
-    id BIGSERIAL PRIMARY KEY,
-    correo TEXT NOT NULL UNIQUE,
-    clave_hash TEXT NOT NULL,
-    groq_cifrada TEXT,
+    correo TEXT PRIMARY KEY,                -- en minúsculas: identifica a cada usuario
+    nombre TEXT NOT NULL,
+    clave_hash TEXT NOT NULL,               -- huella scrypt de la contraseña (nunca la contraseña)
+    groq_cifrada TEXT,                      -- clave de Groq cifrada con WIKIIA_SECRETO
     fallos INTEGER NOT NULL DEFAULT 0,
     bloqueado_hasta TIMESTAMPTZ,
     creado TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -44,11 +47,11 @@ CREATE TABLE IF NOT EXISTS wikiia_usuarios (
 );
 CREATE TABLE IF NOT EXISTS wikiia_sesiones (
     token_hash TEXT PRIMARY KEY,
-    usuario_id BIGINT NOT NULL REFERENCES wikiia_usuarios(id) ON DELETE CASCADE,
+    correo TEXT NOT NULL REFERENCES wikiia_usuarios(correo) ON DELETE CASCADE ON UPDATE CASCADE,
     creada TIMESTAMPTZ NOT NULL DEFAULT now(),
     expira TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_wikiia_sesiones_usuario ON wikiia_sesiones(usuario_id);
+CREATE INDEX IF NOT EXISTS ix_wikiia_sesiones_correo ON wikiia_sesiones(correo);
 """
 
 log = logging.getLogger(__name__)
@@ -60,8 +63,8 @@ class ErrorCuenta(Exception):
 
 @dataclass(frozen=True)
 class Usuario:
-    id: int
     correo: str
+    nombre: str
     groq_clave: str = ""  # "" si todavía no la guardó
 
 
@@ -162,22 +165,28 @@ class Cuentas:
             return ""
 
     def _usuario(self, fila) -> Usuario:
-        return Usuario(id=fila[0], correo=fila[1], groq_clave=self._descifrar(fila[2]))
+        """fila = (correo, nombre, groq_cifrada, …)"""
+        return Usuario(correo=fila[0], nombre=fila[1], groq_clave=self._descifrar(fila[2]))
 
     @staticmethod
-    def _nueva_sesion(con, usuario_id: int) -> str:
+    def _nueva_sesion(con, correo: str) -> str:
         token = secrets.token_urlsafe(32)
         con.execute("DELETE FROM wikiia_sesiones WHERE expira < now()")
-        con.execute("INSERT INTO wikiia_sesiones(token_hash, usuario_id, expira) "
-                    "VALUES (%s, %s, now() + make_interval(days => %s))", (_huella_token(token), usuario_id, DIAS_SESION))
+        con.execute("INSERT INTO wikiia_sesiones(token_hash, correo, expira) "
+                    "VALUES (%s, %s, now() + make_interval(days => %s))", (_huella_token(token), correo, DIAS_SESION))
         return token
 
     # ---------- registro e ingreso ----------
-    def registrar(self, correo: str, contrasena: str, confirmar: str) -> tuple[Usuario, str]:
+    def registrar(self, nombre: str, correo: str, contrasena: str, confirmar: str) -> tuple[Usuario, str]:
         """Crea la cuenta y deja la sesión abierta. Devuelve (usuario, token para la cookie)."""
         import psycopg
 
+        nombre = " ".join((nombre or "").split())
         correo = normalizar_correo(correo)
+        if len(nombre) < 2:
+            raise ErrorCuenta("Escribe tu nombre.")
+        if len(nombre) > MAX_NOMBRE:
+            raise ErrorCuenta(f"El nombre puede tener máximo {MAX_NOMBRE} caracteres.")
         if not _RE_CORREO.match(correo) or len(correo) > 254:
             raise ErrorCuenta("Escribe un correo válido, por ejemplo nombre@gmail.com.")
         if len(contrasena) < MIN_CONTRASENA:
@@ -192,10 +201,12 @@ class Cuentas:
             try:
                 with con.transaction():
                     fila = con.execute(
-                        "INSERT INTO wikiia_usuarios(correo, clave_hash, ultimo_ingreso) VALUES (%s, %s, now()) "
-                        "RETURNING id, correo, groq_cifrada", (correo, huella)).fetchone()
+                        "INSERT INTO wikiia_usuarios(correo, nombre, clave_hash, ultimo_ingreso) "
+                        "VALUES (%s, %s, %s, now()) RETURNING correo, nombre, groq_cifrada",
+                        (correo, nombre, huella)).fetchone()
             except psycopg.errors.UniqueViolation:
-                raise ErrorCuenta("Ya existe una cuenta con ese correo. Entra con tu contraseña en «Entrar».") from None
+                raise ErrorCuenta("Ya existe una cuenta con ese correo. Entra con tu contraseña en "
+                                  "«Iniciar sesión».") from None
             return self._usuario(fila), self._nueva_sesion(con, fila[0])
 
         return self._consulta(crear)
@@ -208,7 +219,7 @@ class Cuentas:
 
         def ingresar(con):
             fila = con.execute(
-                "SELECT id, correo, groq_cifrada, clave_hash, fallos, "
+                "SELECT correo, nombre, groq_cifrada, clave_hash, fallos, "
                 "CEIL(EXTRACT(EPOCH FROM (bloqueado_hasta - now())) / 60) "
                 "FROM wikiia_usuarios WHERE correo = %s FOR UPDATE", (correo,)).fetchone()
             if fila is None:
@@ -220,13 +231,13 @@ class Cuentas:
                 fallos = fila[4] + 1
                 if fallos >= MAX_FALLOS:
                     con.execute("UPDATE wikiia_usuarios SET fallos = 0, "
-                                "bloqueado_hasta = now() + make_interval(mins => %s) WHERE id = %s",
+                                "bloqueado_hasta = now() + make_interval(mins => %s) WHERE correo = %s",
                                 (MINUTOS_BLOQUEO, fila[0]))
                     return ("bloqueado", MINUTOS_BLOQUEO)
-                con.execute("UPDATE wikiia_usuarios SET fallos = %s WHERE id = %s", (fallos, fila[0]))
+                con.execute("UPDATE wikiia_usuarios SET fallos = %s WHERE correo = %s", (fallos, fila[0]))
                 return None
             con.execute("UPDATE wikiia_usuarios SET fallos = 0, bloqueado_hasta = NULL, ultimo_ingreso = now() "
-                        "WHERE id = %s", (fila[0],))
+                        "WHERE correo = %s", (fila[0],))
             return self._usuario(fila), self._nueva_sesion(con, fila[0])
 
         resultado = self._consulta(ingresar)
@@ -242,7 +253,8 @@ class Cuentas:
         if not isinstance(token, str) or not token or len(token) > 100:
             return None
         fila = self._consulta(lambda con: con.execute(
-            "SELECT u.id, u.correo, u.groq_cifrada FROM wikiia_sesiones s JOIN wikiia_usuarios u ON u.id = s.usuario_id "
+            "SELECT u.correo, u.nombre, u.groq_cifrada FROM wikiia_sesiones s "
+            "JOIN wikiia_usuarios u ON u.correo = s.correo "
             "WHERE s.token_hash = %s AND s.expira > now()", (_huella_token(token),)).fetchone())
         return self._usuario(fila) if fila else None
 
@@ -252,14 +264,14 @@ class Cuentas:
                 "DELETE FROM wikiia_sesiones WHERE token_hash = %s", (_huella_token(token),)))
 
     # ---------- clave de Groq ----------
-    def guardar_clave(self, usuario_id: int, clave: str) -> None:
+    def guardar_clave(self, correo: str, clave: str) -> None:
         self._consulta(lambda con: con.execute(
-            "UPDATE wikiia_usuarios SET groq_cifrada = %s WHERE id = %s", (self._cifrar(clave), usuario_id)))
+            "UPDATE wikiia_usuarios SET groq_cifrada = %s WHERE correo = %s", (self._cifrar(clave), correo)))
 
-    def borrar_clave(self, usuario_id: int) -> None:
+    def borrar_clave(self, correo: str) -> None:
         self._consulta(lambda con: con.execute(
-            "UPDATE wikiia_usuarios SET groq_cifrada = NULL WHERE id = %s", (usuario_id,)))
+            "UPDATE wikiia_usuarios SET groq_cifrada = NULL WHERE correo = %s", (correo,)))
 
-    def borrar_cuenta(self, usuario_id: int) -> None:
-        """Borra la cuenta, su clave y todas sus sesiones."""
-        self._consulta(lambda con: con.execute("DELETE FROM wikiia_usuarios WHERE id = %s", (usuario_id,)))
+    def borrar_cuenta(self, correo: str) -> None:
+        """Borra la cuenta, su clave y todas sus sesiones (la llave foránea las borra en cascada)."""
+        self._consulta(lambda con: con.execute("DELETE FROM wikiia_usuarios WHERE correo = %s", (correo,)))

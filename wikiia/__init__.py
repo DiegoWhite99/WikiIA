@@ -1,2 +1,2 @@
 """WikiIA: la enciclopedia local de los modelos de inteligencia artificial del mundo."""
-__version__ = "1.3.0"
+__version__ = "1.4.0"

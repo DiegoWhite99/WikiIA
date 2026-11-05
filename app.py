@@ -484,7 +484,7 @@ def pasos_tour() -> list[dict]:
         paso(".st-key-burbuja_chat", "🧭 ¿No sabes cuál elegir?",
              "Toca esta burbuja cuando quieras: una guía con IA te pregunta <b>qué quieres lograr</b>, si lo "
              "quieres <b>en tu computador o en la nube</b> y con qué equipo cuentas, y te <b>recomienda el modelo "
-             "ideal</b>. Creas tu cuenta con correo y contraseña y usas tu propia clave gratis de Groq.",
+             "ideal</b>. Usa tu propia clave gratis de Groq, que queda guardada en tu cuenta.",
              barra=False, lado="left"),
         paso('[data-testid="stExpander"]', "🌍 Cada país es una sección",
              "Ábrela para ver su tabla. Ahí, toca el <b>nombre</b> de un modelo para abrir su página, "
@@ -542,9 +542,186 @@ def caja_avisos() -> None:
                 botones[2].link_button("📱 Telegram", cfg.telegram_canal_url, width="stretch")
 
 
+# ───────────────────────────── cuentas: iniciar sesión ─────────────────────────────
+# Con DATABASE_URL + WIKIIA_SECRETO (Secrets de Streamlit Cloud) toda la app pide iniciar sesión. El registro pide
+# nombre, correo y la contraseña dos veces; el correo identifica a cada usuario (wikiia/cuentas.py). Sin esas
+# variables (tu PC) no se pide nada.
+COOKIE_SESION = "wikiia_sesion"
+CSS_LOGIN = """<style>
+/* Sin sesión no hay barra lateral ni nada más: solo la tarjeta centrada. */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] {
+  display: none !important; }
+.st-key-tarjeta_login { max-width: 440px; width: 100%; margin: 3vh auto 0 !important; padding: 26px 26px 16px !important;
+  border-radius: 18px !important; border: 1px solid rgba(16, 185, 129, .28) !important; border-top: 5px solid #10b981 !important;
+  box-shadow: 0 20px 50px -12px rgba(4, 120, 87, .28), 0 4px 14px rgba(0, 0, 0, .06); }
+.wikiia-marca { text-align: center; margin-bottom: 4px; }
+.wikiia-marca .w { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: #fff;
+  font: 800 32px/1 "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
+  background: linear-gradient(140deg, #34d399 0%, #10b981 45%, #047857 100%); box-shadow: 0 12px 26px -8px rgba(4, 120, 87, .6); }
+.wikiia-marca h1 { margin: 12px 0 2px; padding: 0; font-size: 1.9rem; }
+.wikiia-marca p { margin: 0; opacity: .7; font-size: .95rem; }
+.st-key-tarjeta_login [role="tablist"] { justify-content: center; }
+.st-key-tarjeta_login button[kind^="primary"] { background: #10b981 !important; border-color: #10b981 !important; color: #fff !important; }
+.st-key-tarjeta_login button[kind^="primary"]:hover { background: #047857 !important; border-color: #047857 !important; }
+.st-key-tarjeta_login [role="tab"][aria-selected="true"], .st-key-tarjeta_login [role="tab"][aria-selected="true"] p {
+  color: #047857 !important; }
+.st-key-tarjeta_login .react-aria-SelectionIndicator, .st-key-tarjeta_login [data-baseweb="tab-highlight"] {
+  background-color: #10b981 !important; }
+.st-key-tarjeta_login [data-testid="stTextInputRootElement"]:focus-within { border-color: #10b981 !important; }
+</style>"""
+MARCA_LOGIN = ('<div class="wikiia-marca"><span class="w">W</span><h1>WikiIA</h1>'
+               '<p>La enciclopedia de los modelos de inteligencia artificial del mundo</p></div>')
+
+
+@st.cache_resource(show_spinner=False)
+def cuentas() -> Cuentas | None:
+    """Cuentas en PostgreSQL. None si faltan DATABASE_URL o WIKIIA_SECRETO. Se comparte entre visitantes, pero no
+    guarda nada de nadie (solo la conexión y la llave para cifrar)."""
+    return Cuentas.desde_config(cfg)
+
+
+def _iniciar_sesion(usuario: Usuario, token: str, escribir: bool = True) -> None:
+    st.session_state.usuario, st.session_state.token_sesion = usuario, token
+    st.session_state.pop("groq_clave", None)
+    if usuario.groq_clave:
+        st.session_state.groq_clave = usuario.groq_clave
+    if escribir:  # entró a mano: se guarda la cookie y se saluda
+        st.session_state.cookie_pendiente = token
+        st.session_state.saludo = usuario.nombre
+
+
+def usuario_actual() -> Usuario | None:
+    """Recupera la sesión desde la cookie, una vez por visita."""
+    if "usuario" not in st.session_state:
+        st.session_state.usuario = None
+        token = st.context.cookies.get(COOKIE_SESION)
+        if CUENTAS and isinstance(token, str) and token:
+            try:
+                usuario = CUENTAS.por_sesion(token)
+            except ErrorCuenta:
+                usuario = None  # la base no respondió: la persona puede entrar a mano
+            else:
+                if usuario:
+                    _iniciar_sesion(usuario, token, escribir=False)
+                else:
+                    st.session_state.cookie_pendiente = ""  # venció o se cerró en otro lado: se borra
+    return st.session_state.usuario
+
+
+def escribir_cookie() -> None:
+    """Después de entrar o salir, el navegador guarda (o borra) la cookie de la sesión. Lleva un código al azar; en
+    la base solo está su huella. Sin "<" adentro del script: el filtro de st.html lo borraría."""
+    if "cookie_pendiente" in st.session_state:
+        token = st.session_state.pop("cookie_pendiente")
+        st.html(f"<script>document.cookie = '{COOKIE_SESION}={token}; max-age={DIAS_SESION * 86400 if token else 0}; "
+                "path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');</script>",
+                unsafe_allow_javascript=True)
+
+
+def _limpiar_sesion() -> None:
+    for k in ("token_sesion", "groq_clave", "chat", "aviso_guia", "pendiente_guia"):
+        st.session_state.pop(k, None)
+    st.session_state.usuario = None
+    st.session_state.cookie_pendiente = ""
+
+
+def _cerrar_sesion() -> None:
+    try:
+        CUENTAS.salir(st.session_state.get("token_sesion", ""))
+    except ErrorCuenta:
+        pass  # la cookie se borra igual; la sesión vence sola en la base
+    _limpiar_sesion()
+
+
+def _borrar_cuenta() -> None:
+    try:
+        CUENTAS.borrar_cuenta(st.session_state.usuario.correo)
+    except ErrorCuenta as e:
+        st.toast(str(e), icon="⚠️")
+        return
+    _limpiar_sesion()
+    st.toast("Listo: tu cuenta y tu clave de Groq se borraron.", icon="🗑️")
+
+
+def _olvidar_clave() -> None:
+    usuario = st.session_state.get("usuario")
+    if usuario and CUENTAS:
+        try:
+            CUENTAS.borrar_clave(usuario.correo)
+        except ErrorCuenta:
+            pass
+        st.session_state.usuario = replace(usuario, groq_clave="")
+    st.session_state.pop("groq_clave", None)
+
+
+def _con_cuenta(accion) -> None:
+    """Corre entrar/registrar y, si sale bien, abre la app."""
+    try:
+        with st.spinner("Un momento…"):
+            usuario, token = accion()
+    except ErrorCuenta as e:
+        st.warning(str(e))
+        return
+    _iniciar_sesion(usuario, token)
+    st.rerun()
+
+
+def pantalla_login() -> None:
+    st.html(CSS_LOGIN)
+    with st.container(key="tarjeta_login", border=True):
+        st.html(MARCA_LOGIN)
+        entrar, crear = st.tabs(["🔑 Iniciar sesión", "✨ Crear cuenta"])
+        with entrar, st.form("form_entrar", border=False):
+            correo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", max_chars=254,
+                                   key="entrar_correo")
+            contrasena = st.text_input("Contraseña", type="password", autocomplete="current-password",
+                                       max_chars=128, key="entrar_contrasena")
+            if st.form_submit_button("Iniciar sesión", type="primary", width="stretch"):
+                _con_cuenta(lambda: CUENTAS.entrar(correo, contrasena))
+        with crear, st.form("form_crear", border=False):
+            nombre = st.text_input("Nombre", placeholder="¿Cómo te llamas?", autocomplete="name", max_chars=80,
+                                   key="crear_nombre")
+            correo_nuevo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", max_chars=254,
+                                         key="crear_correo")
+            nueva = st.text_input("Contraseña (mínimo 8 caracteres)", type="password", autocomplete="new-password",
+                                  max_chars=128, key="crear_contrasena")
+            repetida = st.text_input("Repite la contraseña", type="password", autocomplete="new-password",
+                                     max_chars=128, key="crear_repetida")
+            if st.form_submit_button("Crear mi cuenta", type="primary", width="stretch"):
+                _con_cuenta(lambda: CUENTAS.registrar(nombre, correo_nuevo, nueva, repetida))
+        st.caption("👁️ Toca el ojo de la casilla para **ver u ocultar** tu contraseña.  \n"
+                   "🔒 Tu contraseña no se guarda: solo una huella cifrada que nadie puede leer.")
+
+
+def _sin_markdown(texto_libre: str) -> str:
+    """Para mostrar el nombre que escribió la persona sin que se vuelva un enlace o formato."""
+    return re.sub(r"([\\`*_{}\[\]()#+!|<>~-])", r"\\\1", texto_libre)
+
+
+def panel_cuenta(usuario: Usuario) -> None:
+    """Arriba de la barra lateral: quién está conectado, cerrar sesión, cambiar la clave de Groq o borrar la cuenta."""
+    with st.expander(f"👤 {_sin_markdown(usuario.nombre)}"):
+        st.caption(f"`{usuario.correo}`")  # en código: así no se vuelve un enlace mailto
+        st.button("🚪 Cerrar sesión", on_click=_cerrar_sesion, width="stretch", key="cerrar_sesion")
+        if st.session_state.get("groq_clave"):
+            st.button("🔑 Cambiar mi clave de Groq", on_click=_olvidar_clave, width="stretch", key="cambiar_clave")
+        if st.checkbox("Quiero borrar mi cuenta", key="confirmar_borrado"):
+            st.button("🗑️ Borrar mi cuenta y mi clave", type="primary", on_click=_borrar_cuenta, width="stretch",
+                      key="borrar_cuenta")
+
+
 # ───────────────────────────── app ─────────────────────────────
-modelos, empresas, paises, alertas, ejecuciones, linea_base, ENLACES_ROTOS = cargar_datos(marca_db())
 cfg = cargar_config()
+CUENTAS = cuentas()
+usuario = usuario_actual()
+if CUENTAS and not usuario:  # sin sesión no se ve nada más
+    pantalla_login()
+    escribir_cookie()  # por si acaba de cerrar sesión: se borra la cookie
+    st.stop()
+if st.session_state.get("saludo"):
+    st.toast(f"¡Hola, {st.session_state.pop('saludo')}! 👋", icon="🌐")
+
+modelos, empresas, paises, alertas, ejecuciones, linea_base, ENLACES_ROTOS = cargar_datos(marca_db())
 
 if modelos.empty:
     st.title("🌐 WikiIA")
@@ -563,6 +740,8 @@ if modelos.empty:
 # ---------- barra lateral: filtros ----------
 # Cada grupo tiene key: Streamlit le pone la clase CSS st-key-<key> y el tour guiado la ilumina.
 with st.sidebar:
+    if usuario:
+        panel_cuenta(usuario)
     st.header("🔎 Filtros")
     buscar = st.text_input("Buscar", placeholder="deepseek, gemma, video, código…", key="f_buscar")
     with st.container(key="f_origen"):
@@ -870,7 +1049,7 @@ CSS_BURBUJA = """<style>
 .st-key-ventana_guia button[kind^="primary"]:hover { background: #047857 !important; border-color: #047857 !important; }
 .st-key-ventana_guia [role="tab"][aria-selected="true"], .st-key-ventana_guia [role="tab"][aria-selected="true"] p { color: #047857 !important; }
 .st-key-ventana_guia .react-aria-SelectionIndicator, .st-key-ventana_guia [data-baseweb="tab-highlight"] { background-color: #10b981 !important; }
-.st-key-ventana_guia input:focus { border-color: #10b981 !important; }
+.st-key-ventana_guia [data-testid="stTextInputRootElement"]:focus-within { border-color: #10b981 !important; }
 @media (max-width: 640px) { .st-key-burbuja_chat { right: 16px; bottom: 72px; }
   .st-key-burbuja_chat::before { display: none; } }
 </style>"""
@@ -887,82 +1066,6 @@ ESCRIBIENDO = ('<div class="wikiia-escribiendo"><span></span><span></span><span>
                '<em>escribiendo…</em></div>')
 
 
-COOKIE_SESION = "wikiia_sesion"
-
-
-@st.cache_resource(show_spinner=False)
-def cuentas() -> Cuentas | None:
-    """Cuentas en PostgreSQL (wikiia/cuentas.py). None si faltan DATABASE_URL o WIKIIA_SECRETO: entonces la clave
-    de Groq dura solo la sesión, como antes. Se comparte entre visitantes, pero no guarda nada de nadie."""
-    return Cuentas.desde_config(cfg)
-
-
-CUENTAS = cuentas()
-
-
-def _iniciar_sesion(usuario: Usuario, token: str, escribir_cookie: bool = True) -> None:
-    st.session_state.usuario, st.session_state.token_sesion = usuario, token
-    st.session_state.pop("groq_clave", None)
-    if usuario.groq_clave:
-        st.session_state.groq_clave = usuario.groq_clave
-    if escribir_cookie:
-        st.session_state.cookie_pendiente = token  # el navegador la guarda en la próxima vuelta (ver el final)
-
-
-def usuario_actual() -> Usuario | None:
-    """Recupera la sesión desde la cookie, una vez por visita."""
-    if "usuario" not in st.session_state:
-        st.session_state.usuario = None
-        token = st.context.cookies.get(COOKIE_SESION)
-        if CUENTAS and isinstance(token, str) and token:
-            try:
-                usuario = CUENTAS.por_sesion(token)
-            except ErrorCuenta:
-                usuario = None  # la base no respondió: la persona puede entrar a mano
-            else:
-                if usuario:
-                    _iniciar_sesion(usuario, token, escribir_cookie=False)
-                else:
-                    st.session_state.cookie_pendiente = ""  # venció o se cerró en otro lado: se borra
-    return st.session_state.usuario
-
-
-def _limpiar_sesion() -> None:
-    for k in ("token_sesion", "groq_clave", "chat", "aviso_guia", "pendiente_guia"):
-        st.session_state.pop(k, None)
-    st.session_state.usuario = None
-    st.session_state.cookie_pendiente = ""
-
-
-def _cerrar_sesion() -> None:
-    try:
-        CUENTAS.salir(st.session_state.get("token_sesion", ""))
-    except ErrorCuenta:
-        pass  # la cookie se borra igual; la sesión vence sola en la base
-    _limpiar_sesion()
-
-
-def _borrar_cuenta() -> None:
-    try:
-        CUENTAS.borrar_cuenta(st.session_state.usuario.id)
-    except ErrorCuenta as e:
-        st.toast(str(e), icon="⚠️")
-        return
-    _limpiar_sesion()
-    st.toast("Listo: tu cuenta y tu clave de Groq se borraron.", icon="🗑️")
-
-
-def _olvidar_clave() -> None:
-    usuario = st.session_state.get("usuario")
-    if usuario and CUENTAS:
-        try:
-            CUENTAS.borrar_clave(usuario.id)
-        except ErrorCuenta:
-            pass
-        st.session_state.usuario = replace(usuario, groq_clave="")
-    st.session_state.pop("groq_clave", None)
-
-
 def _empezar_de_nuevo() -> None:
     for k in ("chat", "aviso_guia", "pendiente_guia"):
         st.session_state.pop(k, None)
@@ -970,41 +1073,6 @@ def _empezar_de_nuevo() -> None:
 
 def _mostrar(texto_md: str) -> None:
     st.markdown(texto_md.replace("$", r"\$"))  # "$4 / $20" no es una fórmula matemática
-
-
-def _con_cuenta(accion) -> None:
-    """Corre entrar/registrar y, si sale bien, deja la sesión abierta."""
-    try:
-        with st.spinner("Un momento…"):
-            usuario, token = accion()
-    except ErrorCuenta as e:
-        st.warning(str(e))
-        return
-    _iniciar_sesion(usuario, token)
-    st.rerun()
-
-
-def _guia_entrar() -> None:
-    st.markdown("Te pregunto **qué quieres lograr** y con qué equipo cuentas, y te recomiendo el modelo de IA ideal.\n\n"
-                "Para usarla, **entra o crea tu cuenta gratis** (solo correo y contraseña): así tu clave de Groq "
-                "queda guardada **cifrada** y no tienes que pegarla cada vez que vuelvas.")
-    entrar, crear = st.tabs(["🔑 Entrar", "✨ Crear cuenta"])
-    with entrar, st.form("form_entrar", border=False):
-        correo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", key="entrar_correo")
-        contrasena = st.text_input("Contraseña", type="password", autocomplete="current-password",
-                                   key="entrar_contrasena")
-        if st.form_submit_button("Entrar", type="primary", width="stretch"):
-            _con_cuenta(lambda: CUENTAS.entrar(correo, contrasena))
-    with crear, st.form("form_crear", border=False):
-        correo_nuevo = st.text_input("Correo", placeholder="tu@correo.com", autocomplete="email", key="crear_correo")
-        nueva = st.text_input("Contraseña (mínimo 8 caracteres)", type="password", autocomplete="new-password",
-                              key="crear_contrasena")
-        repetida = st.text_input("Repite la contraseña", type="password", autocomplete="new-password",
-                                 key="crear_repetida")
-        if st.form_submit_button("Crear mi cuenta", type="primary", width="stretch"):
-            _con_cuenta(lambda: CUENTAS.registrar(correo_nuevo, nueva, repetida))
-    st.caption("🔒 Tu contraseña no se guarda: solo una huella que no se puede revertir. Tu clave de Groq se guarda "
-               "cifrada y solo viaja a Groq.")
 
 
 def _guia_sin_clave(usuario: Usuario | None) -> None:
@@ -1025,7 +1093,7 @@ def _guia_sin_clave(usuario: Usuario | None) -> None:
                 st.session_state.groq_clave = nueva.strip()
                 if usuario and CUENTAS:
                     try:
-                        CUENTAS.guardar_clave(usuario.id, nueva.strip())
+                        CUENTAS.guardar_clave(usuario.correo, nueva.strip())
                         st.session_state.usuario = replace(usuario, groq_clave=nueva.strip())
                     except ErrorCuenta:
                         st.toast("No pude guardarla en tu cuenta: por ahora funciona solo en esta visita.", icon="⚠️")
@@ -1034,17 +1102,6 @@ def _guia_sin_clave(usuario: Usuario | None) -> None:
     st.caption("🔒 Se guarda **cifrada en tu cuenta** y solo viaja a Groq (por HTTPS)." if usuario else
                "🔒 Tu clave solo vive en esta pestaña del navegador: no se guarda en ningún lado y se borra al "
                "cerrarla. Solo viaja a Groq (cifrada por HTTPS).")
-
-
-def _mi_cuenta(usuario: Usuario) -> None:
-    with st.expander("👤 Mi cuenta"):
-        st.caption(f"Conectado como `{usuario.correo}`")  # en código: así no se vuelve un enlace mailto
-        with st.container(horizontal=True, gap="small"):
-            if st.session_state.get("groq_clave"):
-                st.button("🔑 Cambiar mi clave de Groq", on_click=_olvidar_clave)
-            st.button("🚪 Cerrar sesión", on_click=_cerrar_sesion)
-        if st.checkbox("Quiero borrar mi cuenta", key="confirmar_borrado"):
-            st.button("🗑️ Borrar mi cuenta y mi clave", type="primary", on_click=_borrar_cuenta)
 
 
 def _guia_chat(clave: str, usuario: Usuario | None) -> None:
@@ -1100,28 +1157,17 @@ def _guia_chat(clave: str, usuario: Usuario | None) -> None:
         st.rerun()  # redibuja: botones de respuesta rápida o el aviso con «Enviar de nuevo»
 
 
-usuario = usuario_actual()
 with st.container(key="burbuja_chat"):
     st.html(CSS_BURBUJA)
     with st.popover("W", help="Tu guía para elegir modelo"):
         with st.container(key="ventana_guia"):
             st.html(CABECERA_GUIA)
-            if CUENTAS and not usuario:
-                _guia_entrar()
-            elif st.session_state.get("groq_clave"):
+            if st.session_state.get("groq_clave"):
                 _guia_chat(st.session_state.groq_clave, usuario)
             else:
                 _guia_sin_clave(usuario)
-            if usuario:
-                _mi_cuenta(usuario)
 
-# Después de entrar o salir: el navegador guarda (o borra) la cookie de la sesión. Sin "<" adentro del script
-# (el filtro de st.html lo borraría). Lleva un código al azar; en la base solo está su huella.
-if "cookie_pendiente" in st.session_state:
-    token_cookie = st.session_state.pop("cookie_pendiente")
-    st.html(f"<script>document.cookie = '{COOKIE_SESION}={token_cookie}; max-age="
-            f"{DIAS_SESION * 86400 if token_cookie else 0}; path=/; SameSite=Lax'"
-            " + (location.protocol === 'https:' ? '; Secure' : '');</script>", unsafe_allow_javascript=True)
+escribir_cookie()  # recién entró: el navegador guarda la cookie que recuerda la sesión
 
 # ---------- tour guiado (primera visita) ----------
 # Se envía una vez por sesión si el navegador no trae la cookie; tour.js la vuelve a revisar antes de empezar.

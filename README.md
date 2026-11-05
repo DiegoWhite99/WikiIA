@@ -81,9 +81,12 @@ data/manuales.json  (servicios de video/imagen sin API pública: Sora, Veo, Klin
   visitante usa **su propia clave gratis de Groq**. Usa un modelo moderado (`GROQ_MODELO_GUIA`,
   `openai/gpt-oss-20b`) y, si Groq pide una pausa o se queda sin cupo, espera o pasa a `gpt-oss-120b`. Los
   errores de Groq nunca se muestran crudos: la persona ve qué hacer (esperar, verificar su clave…).
-- **Cuentas** (`wikiia/cuentas.py`): con `DATABASE_URL` (PostgreSQL) y `WIKIIA_SECRETO`, la guía pide entrar
-  con correo y contraseña y guarda la clave de Groq **cifrada** en la cuenta; la sesión se recuerda 30 días.
-  La contraseña solo se guarda como huella scrypt. Sin esas dos variables la clave dura solo la sesión.
+- **Iniciar sesión** (`wikiia/cuentas.py`): con `DATABASE_URL` (PostgreSQL) y `WIKIIA_SECRETO`, **toda la app
+  pide iniciar sesión**. El registro pide nombre, correo y la contraseña dos veces; el correo identifica a cada
+  usuario (llave primaria de `wikiia_usuarios`, llave foránea de `wikiia_sesiones`). El ojo de la casilla
+  muestra u oculta la contraseña. La sesión se recuerda 30 días; en la barra lateral está «👤 tu nombre» para
+  cerrar sesión, cambiar la clave de Groq o borrar la cuenta. La contraseña solo se guarda como huella scrypt y
+  la clave de Groq, cifrada. Sin esas dos variables (tu PC) no se pide iniciar sesión.
 - **Enlaces revisados** (`wikiia/enlaces.py`): `.venv/bin/python -m wikiia enlaces` revisa que abran los
   enlaces de modelos y empresas (también corre en cada actualización automática). Los rotos no se muestran:
   la app y el calendario usan el siguiente enlace disponible.

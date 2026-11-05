@@ -24,6 +24,7 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
+from functools import lru_cache
 
 DIAS_SESION = 30
 MAX_FALLOS = 5
@@ -93,6 +94,11 @@ def contrasena_coincide(contrasena: str, huella: str) -> bool:
     return hmac.compare_digest(calculado, esperado)
 
 
+@lru_cache(maxsize=1)
+def _huella_falsa() -> str:
+    return huella_contrasena(secrets.token_urlsafe(12))
+
+
 def _huella_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -112,7 +118,6 @@ class Cuentas:
         self.url = url
         llave = hashlib.sha256(b"wikiia-groq|" + secreto.encode()).digest()
         self._fernet = Fernet(base64.urlsafe_b64encode(llave))
-        self._huella_falsa = huella_contrasena(secrets.token_urlsafe(12))
 
     @classmethod
     def desde_config(cls, cfg) -> "Cuentas | None":
@@ -223,7 +228,7 @@ class Cuentas:
                 "CEIL(EXTRACT(EPOCH FROM (bloqueado_hasta - now())) / 60) "
                 "FROM wikiia_usuarios WHERE correo = %s FOR UPDATE", (correo,)).fetchone()
             if fila is None:
-                contrasena_coincide(contrasena, self._huella_falsa)  # tarda lo mismo: no revela si el correo existe
+                contrasena_coincide(contrasena, _huella_falsa())  # tarda lo mismo: no revela si el correo existe
                 return None
             if fila[5] is not None and fila[5] > 0:
                 return ("bloqueado", int(fila[5]))

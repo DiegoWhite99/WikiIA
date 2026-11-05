@@ -573,16 +573,20 @@ MARCA_LOGIN = ('<div class="wikiia-marca"><span class="w">W</span><h1>WikiIA</h1
                '<p>La enciclopedia de los modelos de inteligencia artificial del mundo</p></div>')
 
 
-@st.cache_resource(show_spinner=False)
-def _cuentas(url: str, secreto: str) -> Cuentas:
-    """Se comparte entre visitantes, pero no guarda nada de nadie (solo la dirección de la base y la llave para
-    cifrar). Depende de los dos valores: si cambian los Secrets, se crea de nuevo sin reiniciar la app."""
-    return Cuentas(url, secreto)
-
-
 def cuentas() -> Cuentas | None:
-    """Cuentas en PostgreSQL, o None si faltan DATABASE_URL o WIKIIA_SECRETO (se revisa en cada visita)."""
-    return _cuentas(cfg.database_url, cfg.secreto) if cfg.database_url and cfg.secreto else None
+    """Cuentas en PostgreSQL, o None si faltan DATABASE_URL o WIKIIA_SECRETO. Se crea en cada vuelta (es liviano):
+    así lee los Secrets nuevos sin reiniciar y nunca queda una copia vieja del código guardada en caché (st.cache_resource
+    sobrevive a las actualizaciones y sus errores ya no coincidían con los del código nuevo)."""
+    return Cuentas(cfg.database_url, cfg.secreto) if cfg.database_url and cfg.secreto else None
+
+
+def mensaje_cuenta(e: Exception) -> str:
+    """Lo que ve la persona cuando falla algo de cuentas: el mensaje amable de ErrorCuenta o uno genérico. Nunca el
+    error técnico (ese va a los registros del servidor)."""
+    if isinstance(e, ErrorCuenta) or type(e).__name__ == "ErrorCuenta":
+        return str(e)
+    print(f"[WikiIA] Error de cuentas: {e.__class__.__name__}: {e}")
+    return "Algo falló con tu cuenta. Espera un momento y vuelve a intentarlo."
 
 
 def _iniciar_sesion(usuario: Usuario, token: str, escribir: bool = True) -> None:
@@ -603,8 +607,9 @@ def usuario_actual() -> Usuario | None:
         if CUENTAS and isinstance(token, str) and token:
             try:
                 usuario = CUENTAS.por_sesion(token)
-            except ErrorCuenta:
-                usuario = None  # la base no respondió: la persona puede entrar a mano
+            except Exception as e:  # noqa: BLE001 - la base no respondió: la persona puede entrar a mano
+                mensaje_cuenta(e)
+                usuario = None
             else:
                 if usuario:
                     _iniciar_sesion(usuario, token, escribir=False)
@@ -633,16 +638,16 @@ def _limpiar_sesion() -> None:
 def _cerrar_sesion() -> None:
     try:
         CUENTAS.salir(st.session_state.get("token_sesion", ""))
-    except ErrorCuenta:
-        pass  # la cookie se borra igual; la sesión vence sola en la base
+    except Exception as e:  # noqa: BLE001 - la cookie se borra igual; la sesión vence sola en la base
+        mensaje_cuenta(e)
     _limpiar_sesion()
 
 
 def _borrar_cuenta() -> None:
     try:
         CUENTAS.borrar_cuenta(st.session_state.usuario.correo)
-    except ErrorCuenta as e:
-        st.toast(str(e), icon="⚠️")
+    except Exception as e:  # noqa: BLE001
+        st.toast(mensaje_cuenta(e), icon="⚠️")
         return
     _limpiar_sesion()
     st.toast("Listo: tu cuenta y tu clave de Groq se borraron.", icon="🗑️")
@@ -653,8 +658,8 @@ def _olvidar_clave() -> None:
     if usuario and CUENTAS:
         try:
             CUENTAS.borrar_clave(usuario.correo)
-        except ErrorCuenta:
-            pass
+        except Exception as e:  # noqa: BLE001
+            mensaje_cuenta(e)
         st.session_state.usuario = replace(usuario, groq_clave="")
     st.session_state.pop("groq_clave", None)
 
@@ -664,8 +669,8 @@ def _con_cuenta(accion) -> None:
     try:
         with st.spinner("Un momento…"):
             usuario, token = accion()
-    except ErrorCuenta as e:
-        st.warning(str(e))
+    except Exception as e:  # noqa: BLE001 - nunca un error técnico en pantalla
+        st.warning(mensaje_cuenta(e))
         return
     _iniciar_sesion(usuario, token)
     st.rerun()
@@ -1100,7 +1105,8 @@ def _guia_sin_clave(usuario: Usuario | None) -> None:
                     try:
                         CUENTAS.guardar_clave(usuario.correo, nueva.strip())
                         st.session_state.usuario = replace(usuario, groq_clave=nueva.strip())
-                    except ErrorCuenta:
+                    except Exception as e:  # noqa: BLE001
+                        mensaje_cuenta(e)
                         st.toast("No pude guardarla en tu cuenta: por ahora funciona solo en esta visita.", icon="⚠️")
                 st.rerun()
             st.warning(detalle)

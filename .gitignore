@@ -1,0 +1,6 @@
+.venv/
+.env
+wikiia.db*
+__pycache__/
+*.pyc
+.wikiia.lock

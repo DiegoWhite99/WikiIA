@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import altair as alt
 import pandas as pd
@@ -11,7 +12,7 @@ import streamlit as st
 from wikiia import db
 from wikiia.actualizador import ejecutar
 from wikiia.alertas import enviar as enviar_alerta, texto_precio
-from wikiia.config import DB_RUTA, cargar_config, perfil_equipo
+from wikiia.config import DB_RUTA, cargar_config, es_publico, perfil_equipo
 from wikiia.heuristicas import (
     ETIQUETA_ACCESO, ETIQUETA_POTENCIA, ETIQUETAS_CAP, ICONO_CAP,
     estrellas, notas_importantes, num, requisitos_local, texto, veredicto_texto,
@@ -43,6 +44,9 @@ st.html(
     unsafe_allow_javascript=True,
 )
 
+# Público (Streamlit Cloud): solo lectura. Ahí no hay Ollama ni .env, la RAM es la del servidor y lo que se
+# escriba se borra al reiniciar; los datos se actualizan en tu PC y se suben con git push.
+PUBLICO = es_publico()
 CAPS = list(ETIQUETAS_CAP)
 # Paleta de referencia validada (dataviz): un solo azul para magnitudes, 3 primeros tonos categóricos para acceso.
 AZUL = "#2a78d6"
@@ -58,7 +62,11 @@ ORDENES = {
 COLUMNAS_TABLA = {
     "pais_label": st.column_config.TextColumn("País"),
     "empresa": st.column_config.TextColumn("Empresa"),
-    "nombre": st.column_config.TextColumn("Modelo", width="medium"),
+    # El nombre ES el hipervínculo: la URL lleva el nombre al final (#nombre) y display_text muestra solo esa parte.
+    "modelo": st.column_config.LinkColumn(
+        "Modelo", width="medium", display_text=r".*#(.+)$",
+        help="Toca el nombre para abrir su página: descarga en Hugging Face (modelos locales) "
+             "o su web / chat oficial (modelos en la nube)"),
     "estrellas": st.column_config.TextColumn("Potencia", help="★★★★★ Frontera · ★★★★ Alto · ★★★ Medio · ★★ Ligero · ★ Básico"),
     "sirve_para": st.column_config.TextColumn(
         "Sirve para",
@@ -67,9 +75,6 @@ COLUMNAS_TABLA = {
     "precio": st.column_config.TextColumn("Precio USD / 1M tokens", help="Entrada / salida, según OpenRouter"),
     "fecha_dt": st.column_config.DateColumn("Publicado", format="YYYY-MM-DD"),
     "estado": st.column_config.TextColumn("Ficha"),
-    "enlace": st.column_config.LinkColumn(
-        "Enlace", display_text=r"https?://(?:www\.)?([^/]+)",
-        help="Modelos locales: página de descarga en Hugging Face · Modelos en la nube: su web o chat oficial"),
 }
 
 
@@ -117,6 +122,10 @@ def cargar_datos(marca: tuple):  # 'marca' cambia cuando la base cambia → reca
     modelos["sirve_para"] = modelos.apply(lambda f: " ".join(ICONO_CAP[c] for c in CAPS if f[c]), axis=1)
     modelos["precio"] = modelos.apply(lambda f: texto_precio(f, corto=True), axis=1)
     modelos["enlace"] = modelos.apply(enlace_principal, axis=1)
+    # Streamlit decodifica el texto visible (decodeURIComponent): se codifica para que +, % o # se vean tal cual.
+    modelos["modelo"] = modelos.apply(
+        lambda f: f"{f['enlace'] or 'https://www.google.com/search?q=' + quote(str(f['nombre']))}"
+                  f"#{quote(str(f['nombre']), safe='')}", axis=1)
     modelos["fecha_dt"] = pd.to_datetime(modelos["fecha"], errors="coerce")
     modelos["mi_pc"] = modelos.apply(lambda f: requisitos_local(f, perfil)[1], axis=1)
     modelos["estado"] = modelos.apply(
@@ -165,7 +174,7 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
         izq.caption(f"**{f['empresa']}** · {f['pais']} · publicado {fecha} · fuente: {texto(f['origen'])}")
         with der:
             if f["verificado"]:
-                st.badge("Verificada por ti", icon="✔️", color="green")
+                st.badge("Verificada" if PUBLICO else "Verificada por ti", icon="✔️", color="green")
             elif f["investigado"]:
                 st.badge("Ficha hecha por IA", icon="🧠", color="blue")
             else:
@@ -188,6 +197,8 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
             st.markdown(f"**¿Para qué sirve?** {f['resumen']}")
             if texto(f["mejor_para"]):
                 st.markdown(f"**Mejor para:** {f['mejor_para']}")
+        elif PUBLICO:
+            st.info("⏳ Esta ficha todavía no se ha investigado con IA; llegará en una próxima actualización.")
         else:
             st.info("⏳ Todavía no se investigó con IA. Pulsa **Investigar con IA** abajo o espera la próxima actualización.")
             if texto(f["descripcion"]):
@@ -208,6 +219,7 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
         req, veredicto = requisitos_local(f, perfil)
         if req:
             tecnico.append(f"**Para correrlo local:** {req}")
+        if req and not PUBLICO:  # en la nube "tu PC" sería el servidor de Streamlit
             tecnico.append(f"**¿En tu PC ({perfil['ram_gb']:.0f} GB RAM"
                            f"{', GPU ' + str(perfil['vram_gb']) + ' GB' if perfil['vram_gb'] else ', sin GPU'})?** "
                            f"{veredicto_texto(veredicto, perfil)}")
@@ -227,6 +239,8 @@ def mostrar_ficha(f: pd.Series, clave: str) -> None:
             seccion_local(f, clave)
         seccion_web(f, clave)
 
+        if PUBLICO:
+            return
         a, b = st.columns([1, 3])
         if a.button("🧠 Investigar con IA", key=f"inv_{clave}", help="Groq → Ollama de respaldo"):
             with st.spinner("Leyendo la documentación y preguntando a la IA…"):
@@ -366,12 +380,94 @@ def tabla_con_ficha(df: pd.DataFrame, clave: str, columnas: list[str], alto: int
         mostrar_ficha(fila, clave)
 
 
+# ───────────────────────────── tutorial ─────────────────────────────
+# Se muestra solo la primera vez: una cookie de 1 año recuerda en el navegador que ya se vio.
+COOKIE_TUTORIAL = "wikiia_tutorial_visto"
+PASOS_TUTORIAL = [
+    ("👋 Bienvenido a WikiIA",
+     "Aquí están los modelos de inteligencia artificial del mundo, con su país, potencia, precio y para qué sirven.\n\n"
+     "- **Toca el nombre de un modelo** para abrir su página: la descarga en Hugging Face si es local, "
+     "o su web o chat oficial si está en la nube.\n"
+     "- **Marca la casilla** al inicio de una fila para ver su ficha completa debajo de la tabla.\n\n"
+     "Los **filtros** están en la barra de la izquierda (en el celular, ábrela con **>** arriba a la izquierda). "
+     "Te los explico en un minuto."),
+    ("🔎 Buscar",
+     "Escribe parte del nombre, la empresa o un tema: `deepseek`, `gemma`, `video`, `código`…\n\n"
+     "Busca en el nombre, la empresa y el resumen de cada modelo."),
+    ("🌍 País y 🏢 Empresa",
+     "Elige uno o varios. El número entre paréntesis es cuántos modelos tiene cada uno.\n\n"
+     "La lista de empresas se ajusta a los países que elegiste. Déjalos vacíos para ver todos."),
+    ("🧩 Sirve para",
+     "Toca las capacidades que necesitas: " + " · ".join(ETIQUETAS_CAP.values()) + ".\n\n"
+     "Si eliges varias, solo salen los modelos que las tienen **todas**."),
+    ("☁️ Cómo se usa y 💲 Costo",
+     f"- **{ETIQUETA_ACCESO['api']}**: lo usas en su web o por API; normalmente pagas por uso.\n"
+     f"- **{ETIQUETA_ACCESO['local']}**: lo descargas y corre en tu computador, gratis.\n"
+     f"- **{ETIQUETA_ACCESO['ambos']}**: se puede de las dos formas.\n\n"
+     "En **Costo** eliges entre *Todos*, *Gratis / local* y *De pago*."),
+    ("⭐ Potencia, 📅 Publicado y Ordenar por",
+     "- **Potencia mínima**: " + " · ".join(f"{estrellas(p)} {ETIQUETA_POTENCIA[p]}" for p in range(5, 0, -1))
+     + ". Es una estimación, no un benchmark.\n"
+     "- **Publicado**: solo los de la última semana, mes, trimestre o año.\n"
+     "- **Ordenar por**: " + ", ".join(o.split(" ", 1)[1].lower() for o in ORDENES) + "."),
+    ("☑️ Las casillas",
+     "- **Ocultar los retirados de la API**: quita los que ya no se pueden usar." if PUBLICO else
+     "- **Solo los que corren en mi PC**: modelos locales que caben en la memoria de tu computador.\n"
+     "- **Ocultar los retirados de la API**: quita los que ya no se pueden usar.\n"
+     "- **Mostrar los que oculté**: vuelve a mostrar los modelos que escondiste desde su ficha."),
+    ("🗂️ Las pestañas",
+     "- **🌍 Por país** y **🏢 Por empresa**: los modelos agrupados.\n"
+     "- **🏆 Ranking**: todos en una sola tabla, en el orden que elegiste.\n"
+     "- **🔔 Novedades**: lo publicado en los últimos 30 días.\n"
+     "- **📊 Estadísticas**: gráficos por país y por capacidad.\n\n"
+     "Puedes volver a ver este tutorial con el botón **❓ Ver tutorial** de la barra lateral."),
+]
+
+
+def _mover_tutorial(paso: int) -> None:
+    st.session_state.tutorial_paso = paso
+
+
+def _abrir_tutorial() -> None:
+    st.session_state.tutorial_abierto = True
+    st.session_state.tutorial_paso = 0
+
+
+def _cerrar_tutorial() -> None:
+    st.session_state.tutorial_abierto = False
+
+
+# Sigue abierto mientras tutorial_abierto sea True: así no se cierra solo al cambiar de paso.
+@st.dialog("📖 Cómo usar WikiIA", width="large", on_dismiss=_cerrar_tutorial)
+def tutorial() -> None:
+    st.html(f"<script>document.cookie = '{COOKIE_TUTORIAL}=1; max-age=31536000; path=/; SameSite=Lax';</script>",
+            unsafe_allow_javascript=True)
+    paso = st.session_state.get("tutorial_paso", 0)
+    ultimo = len(PASOS_TUTORIAL) - 1
+    titulo, cuerpo = PASOS_TUTORIAL[paso]
+    st.progress((paso + 1) / len(PASOS_TUTORIAL), text=f"Paso {paso + 1} de {len(PASOS_TUTORIAL)}")
+    st.subheader(titulo)
+    st.markdown(cuerpo)
+    atras, saltar, siguiente = st.columns(3)
+    # Atrás / Siguiente solo cambian de paso (el diálogo se redibuja solo); Saltar y ¡Empezar! lo cierran.
+    atras.button("← Atrás", disabled=paso == 0, width="stretch", on_click=_mover_tutorial, args=(paso - 1,))
+    if paso < ultimo:
+        if saltar.button("Saltar", width="stretch", on_click=_cerrar_tutorial):
+            st.rerun()
+        siguiente.button("Siguiente →", type="primary", width="stretch", on_click=_mover_tutorial, args=(paso + 1,))
+    elif siguiente.button("¡Empezar!", type="primary", width="stretch", on_click=_cerrar_tutorial):
+        st.rerun()
+
+
 # ───────────────────────────── app ─────────────────────────────
 modelos, empresas, paises, alertas, ejecuciones, linea_base = cargar_datos(marca_db())
 cfg = cargar_config()
 
 if modelos.empty:
     st.title("🌐 WikiIA")
+    if PUBLICO:
+        st.info("WikiIA se está actualizando. Vuelve en unos minutos.")
+        st.stop()
     st.info("La base está vacía. Carga los modelos por primera vez (tarda menos de un minuto).")
     if st.button("🚀 Cargar modelos ahora", type="primary"):
         with st.status("Cargando modelos…", expanded=True) as estado:
@@ -384,7 +480,8 @@ if modelos.empty:
 # ---------- barra lateral: filtros ----------
 with st.sidebar:
     st.header("🔎 Filtros")
-    buscar = st.text_input("Buscar", placeholder="deepseek, gemma, video, código…")
+    st.button("❓ Ver tutorial", width="stretch", on_click=_abrir_tutorial)
+    buscar =st.text_input("Buscar", placeholder="deepseek, gemma, video, código…")
     conteo_paises = modelos[modelos["oculto"] == 0].groupby("pais_label").size().sort_values(ascending=False)
     sel_paises = st.multiselect("País", list(conteo_paises.index), placeholder="Todos los países",
                                 format_func=lambda p: f"{p} ({conteo_paises[p]})")
@@ -402,15 +499,23 @@ with st.sidebar:
     periodo = st.selectbox("Publicado", ["Cualquier fecha", "Últimos 7 días", "Últimos 30 días",
                                          "Últimos 90 días", "Último año"])
     orden = st.selectbox("Ordenar por", list(ORDENES))
-    solo_mi_pc = st.checkbox("🖥️ Solo los que corren en mi PC")
+    solo_mi_pc = False if PUBLICO else st.checkbox("🖥️ Solo los que corren en mi PC")
     ocultar_retirados = st.checkbox("Ocultar los retirados de la API", value=True)
-    ver_ocultos = st.checkbox("Mostrar los que oculté", value=False)
+    ver_ocultos = False if PUBLICO else st.checkbox("Mostrar los que oculté", value=False)
 
     st.divider()
-    llm = estado_llm()
-    st.caption(f"**Motor de IA:** Groq {'✅' if llm['groq'] else '❌'} · Ollama {'✅' if llm['ollama'] else '❌'}")
+    if not PUBLICO:
+        llm = estado_llm()
+        st.caption(f"**Motor de IA:** Groq {'✅' if llm['groq'] else '❌'} · Ollama {'✅' if llm['ollama'] else '❌'}")
     if not ejecuciones.empty:
         st.caption(f"**Última actualización:** {str(ejecuciones.iloc[0]['fin'])[:16].replace('T', ' ')}")
+
+# Primera visita: sin la cookie del tutorial y aún no mostrado en esta sesión. Después, solo con "❓ Ver tutorial".
+if not st.session_state.get("tutorial_mostrado") and st.context.cookies.get(COOKIE_TUTORIAL) != "1":
+    st.session_state.tutorial_mostrado = True
+    _abrir_tutorial()
+if st.session_state.get("tutorial_abierto"):
+    tutorial()
 
 df = modelos.copy()
 if not ver_ocultos:
@@ -455,13 +560,14 @@ m3.metric("Empresas", df["empresa_id"].nunique())
 m4.metric("Publicados esta semana", int((df["fecha_dt"] >= hace_7).sum()))
 m5.metric("Fichas investigadas", f"{df['investigado'].mean() * 100:.0f}%" if len(df) else "—",
           help="Porcentaje de modelos con ficha hecha por IA o verificada")
-sin_leer = int((alertas["leida"] == 0).sum()) if not alertas.empty else 0
+# Las alertas "sin leer" son del dueño de la app: en la versión pública no se muestran como pendientes.
+sin_leer = int((alertas["leida"] == 0).sum()) if not alertas.empty and not PUBLICO else 0
 if sin_leer:
     st.info(f"🔔 Tienes **{sin_leer}** alertas sin leer: revisa la pestaña **Novedades**.")
 
-tab_pais, tab_rank, tab_emp, tab_nov, tab_est, tab_conf = st.tabs(
-    ["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
-     "📊 Estadísticas", "⚙️ Configuración"])
+nombres_tabs = ["🌍 Por país", "🏆 Ranking", "🏢 Por empresa", f"🔔 Novedades{f' ({sin_leer})' if sin_leer else ''}",
+                "📊 Estadísticas"] + ([] if PUBLICO else ["⚙️ Configuración"])
+tab_pais, tab_rank, tab_emp, tab_nov, tab_est, *tab_admin = st.tabs(nombres_tabs)
 
 # ---------- por país ----------
 with tab_pais:
@@ -479,14 +585,14 @@ with tab_pais:
                 st.warning(nota, icon="⚠️")
             st.markdown(" · ".join(f"**{e}** ({c})" for e, c in grupo["empresa"].value_counts().items()))
             tabla_con_ficha(grupo, f"pais_{grupo['pais_codigo'].iloc[0]}",
-                            ["empresa", "nombre", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado", "enlace"])
+                            ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado"])
 
 # ---------- ranking ----------
 with tab_rank:
     st.caption(f"Todos los modelos que cumplen los filtros, ordenados por: **{orden}**. Toca una fila para ver la ficha.")
     tabla_con_ficha(df, "ranking",
-                    ["pais_label", "empresa", "nombre", "estrellas", "sirve_para", "acceso_label", "precio",
-                     "fecha_dt", "estado", "enlace"], alto=560)
+                    ["pais_label", "modelo", "estrellas", "sirve_para", "acceso_label", "precio",
+                     "fecha_dt", "estado"], alto=560)
 
 # ---------- por empresa ----------
 with tab_emp:
@@ -511,7 +617,7 @@ with tab_emp:
         if texto(fila_emp["empresa_web"]):
             st.link_button(f"🔗 Web de {fila_emp['empresa']}", fila_emp["empresa_web"])
         tabla_con_ficha(grupo, f"empresa_{empresa_id}",
-                        ["nombre", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado", "enlace"])
+                        ["modelo", "estrellas", "sirve_para", "acceso_label", "precio", "fecha_dt", "estado"])
 
 # ---------- novedades ----------
 with tab_nov:
@@ -520,12 +626,11 @@ with tab_nov:
         st.subheader("🆕 Publicados en los últimos 30 días")
         recientes = df[df["fecha_dt"] >= pd.Timestamp(datetime.now() - timedelta(days=30))]
         tabla_con_ficha(recientes.sort_values(["fecha_dt", "potencia"], ascending=False), "recientes",
-                        ["fecha_dt", "pais_label", "empresa", "nombre", "estrellas", "sirve_para", "acceso_label", "enlace"])
+                        ["fecha_dt", "pais_label", "modelo", "estrellas", "sirve_para", "acceso_label"])
     with der:
         st.subheader("🔔 Alertas")
         if alertas.empty:
-            st.caption("Todavía no hay alertas. Llegarán aquí, al escritorio y a Telegram (si lo configuras) "
-                       "cada vez que se detecte un modelo nuevo.")
+            st.caption("Todavía no hay alertas. Aparecerán aquí cada vez que se detecte un modelo nuevo.")
         else:
             if sin_leer and st.button("Marcar todas como leídas"):
                 con = db.conectar()
@@ -611,8 +716,10 @@ with tab_est:
             ).properties(height=260),
             width="stretch")
 
-# ---------- configuración ----------
-with tab_conf:
+# ---------- configuración (solo en tu PC) ----------
+if PUBLICO:
+    st.stop()
+with tab_admin[0]:
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("🔄 Actualizar")

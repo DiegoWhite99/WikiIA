@@ -38,6 +38,20 @@ class Config:
     investigar_por_ejecucion: int
 
 
+def es_publico() -> bool:
+    """True en la versión de internet: solo lectura, sin botones de actualizar, investigar ni editar.
+
+    WIKIIA_PUBLICO=1 / 0 lo fuerza; si no está, se detecta Streamlit Community Cloud
+    (ejecuta las apps desde /mount/src/<repo>).
+    """
+    valor = _env("WIKIIA_PUBLICO").lower()
+    if valor in ("1", "si", "sí", "true"):
+        return True
+    if valor in ("0", "no", "false"):
+        return False
+    return str(RAIZ).startswith("/mount/src/")
+
+
 def cargar_config() -> Config:
     try:
         por_ejecucion = int(_env("INVESTIGAR_POR_EJECUCION", "25"))
